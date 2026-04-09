@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 
 	"github.com/yedou37/dbd/internal/config"
 	"github.com/yedou37/dbd/internal/model"
@@ -28,16 +29,33 @@ type Node struct {
 }
 
 func New(cfg config.ServerConfig, store *storage.Store) (*Node, error) {
-	if err := os.MkdirAll(raftStateDir(cfg.RaftDir, cfg.NodeID), 0o755); err != nil {
+	stateDir := raftStateDir(cfg.RaftDir, cfg.NodeID)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return nil, err
 	}
 
 	raftConfig := raft.DefaultConfig()
 	raftConfig.LocalID = raft.ServerID(cfg.NodeID)
 
-	logStore := raft.NewInmemStore()
-	stableStore := raft.NewInmemStore()
-	snapshotStore := raft.NewInmemSnapshotStore()
+	logStore, err := raftboltdb.NewBoltStore(filepath.Join(stateDir, "raft-log.db"))
+	if err != nil {
+		return nil, err
+	}
+
+	stableStore, err := raftboltdb.NewBoltStore(filepath.Join(stateDir, "raft-stable.db"))
+	if err != nil {
+		return nil, err
+	}
+
+	snapshotDir := filepath.Join(stateDir, "snapshots")
+	if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
+		return nil, err
+	}
+
+	snapshotStore, err := raft.NewFileSnapshotStore(snapshotDir, 2, io.Discard)
+	if err != nil {
+		return nil, err
+	}
 
 	transport, err := raft.NewTCPTransport(cfg.RaftAddr, nil, 3, 10*time.Second, io.Discard)
 	if err != nil {
@@ -56,7 +74,12 @@ func New(cfg config.ServerConfig, store *storage.Store) (*Node, error) {
 		leaderHTTPHint: normalizeHTTPAddr(cfg.HTTPAddr),
 	}
 
-	if cfg.Bootstrap {
+	hasExistingState, err := raft.HasExistingState(logStore, stableStore, snapshotStore)
+	if err != nil {
+		return nil, err
+	}
+
+	if cfg.Bootstrap && !hasExistingState {
 		future := instance.BootstrapCluster(raft.Configuration{
 			Servers: []raft.Server{{
 				ID:      raft.ServerID(cfg.NodeID),
