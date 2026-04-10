@@ -8,9 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -24,49 +22,6 @@ type runningNode struct {
 	cfg   config.ServerConfig
 	errCh chan error
 }
-
-// #region debug-point E:test-lifecycle
-func reportE2EDebugEvent(hypothesisID, location, msg string, data map[string]any) {
-	serverURL := "http://127.0.0.1:7777/event"
-	sessionID := "ci-node3-restart"
-	if content, err := os.ReadFile(".dbg/ci-node3-restart.env"); err == nil {
-		for _, line := range strings.Split(string(content), "\n") {
-			if value, ok := strings.CutPrefix(line, "DEBUG_SERVER_URL="); ok {
-				serverURL = value
-			}
-			if value, ok := strings.CutPrefix(line, "DEBUG_SESSION_ID="); ok {
-				sessionID = value
-			}
-		}
-	}
-
-	payload, err := json.Marshal(map[string]any{
-		"sessionId":    sessionID,
-		"runId":        "pre-fix",
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"msg":          msg,
-		"data":         data,
-		"ts":           time.Now().UnixMilli(),
-	})
-	if err != nil {
-		return
-	}
-
-	go func(url string, body []byte) {
-		request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
-			return
-		}
-		request.Header.Set("Content-Type", "application/json")
-		response, err := http.DefaultClient.Do(request)
-		if err == nil && response != nil {
-			_ = response.Body.Close()
-		}
-	}(serverURL, payload)
-}
-
-// #endregion
 
 func TestThreeNodeClusterReplicatesWrites(t *testing.T) {
 	http1, raft1 := reserveAddr(t), reserveAddr(t)
@@ -227,39 +182,15 @@ func TestFollowerRestartCatchesUpMissingWrites(t *testing.T) {
 
 func startNode(t *testing.T, cfg config.ServerConfig) *runningNode {
 	t.Helper()
-	reportE2EDebugEvent("E", "test/e2e/cluster_test.go:startNode:new-app", "[DEBUG] startNode begin", map[string]any{
-		"nodeID":   cfg.NodeID,
-		"httpAddr": cfg.HTTPAddr,
-		"raftAddr": cfg.RaftAddr,
-		"joinAddr": cfg.JoinAddr,
-	})
 
 	instance, err := apppkg.NewServerApp(cfg)
 	if err != nil {
-		reportE2EDebugEvent("B", "test/e2e/cluster_test.go:startNode:new-app-error", "[DEBUG] NewServerApp failed", map[string]any{
-			"nodeID": cfg.NodeID,
-			"error":  err.Error(),
-		})
 		t.Fatalf("NewServerApp(%s) error = %v", cfg.NodeID, err)
 	}
-	reportE2EDebugEvent("E", "test/e2e/cluster_test.go:startNode:new-app-ok", "[DEBUG] NewServerApp succeeded", map[string]any{
-		"nodeID": cfg.NodeID,
-	})
 
 	errCh := make(chan error, 1)
 	go func() {
-		reportE2EDebugEvent("A", "test/e2e/cluster_test.go:startNode:run-enter", "[DEBUG] instance.Run enter", map[string]any{
-			"nodeID": cfg.NodeID,
-		})
-		err := instance.Run()
-		errData := map[string]any{
-			"nodeID": cfg.NodeID,
-		}
-		if err != nil {
-			errData["error"] = err.Error()
-		}
-		reportE2EDebugEvent("A", "test/e2e/cluster_test.go:startNode:run-exit", "[DEBUG] instance.Run exit", errData)
-		errCh <- err
+		errCh <- instance.Run()
 	}()
 
 	node := &runningNode{
@@ -294,10 +225,6 @@ func waitForHealth(t *testing.T, addr string) {
 
 func waitForHealthWithin(t *testing.T, addr string, timeout time.Duration) {
 	t.Helper()
-	reportE2EDebugEvent("C", "test/e2e/cluster_test.go:waitForHealthWithin:begin", "[DEBUG] waitForHealthWithin begin", map[string]any{
-		"addr":    addr,
-		"timeout": timeout.String(),
-	})
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -305,18 +232,11 @@ func waitForHealthWithin(t *testing.T, addr string, timeout time.Duration) {
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				reportE2EDebugEvent("C", "test/e2e/cluster_test.go:waitForHealthWithin:ok", "[DEBUG] waitForHealthWithin success", map[string]any{
-					"addr": addr,
-				})
 				return
 			}
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	reportE2EDebugEvent("C", "test/e2e/cluster_test.go:waitForHealthWithin:timeout", "[DEBUG] waitForHealthWithin timeout", map[string]any{
-		"addr":    addr,
-		"timeout": timeout.String(),
-	})
 	t.Fatalf("health check timed out for %s after %s", addr, timeout)
 }
 
@@ -489,29 +409,13 @@ func (n *runningNode) stop(t *testing.T) {
 	if n == nil || n.app == nil {
 		return
 	}
-	reportE2EDebugEvent("E", "test/e2e/cluster_test.go:stop:begin", "[DEBUG] node stop begin", map[string]any{
-		"nodeID": n.cfg.NodeID,
-	})
 	_ = n.app.Close()
-	reportE2EDebugEvent("E", "test/e2e/cluster_test.go:stop:close-returned", "[DEBUG] app.Close returned", map[string]any{
-		"nodeID": n.cfg.NodeID,
-	})
 	select {
 	case err := <-n.errCh:
-		errData := map[string]any{
-			"nodeID": n.cfg.NodeID,
-		}
-		if err != nil {
-			errData["error"] = err.Error()
-		}
-		reportE2EDebugEvent("E", "test/e2e/cluster_test.go:stop:run-exit", "[DEBUG] node stop observed run exit", errData)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			t.Fatalf("Run(%s) error = %v", n.cfg.NodeID, err)
 		}
 	case <-time.After(3 * time.Second):
-		reportE2EDebugEvent("B", "test/e2e/cluster_test.go:stop:timeout", "[DEBUG] node stop timed out", map[string]any{
-			"nodeID": n.cfg.NodeID,
-		})
 		t.Fatalf("timeout waiting node %s to stop", n.cfg.NodeID)
 	}
 	n.app = nil
