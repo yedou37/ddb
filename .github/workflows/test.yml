@@ -7,8 +7,11 @@ on:
       - master
   pull_request:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
-  test:
+  unit-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,8 +26,11 @@ jobs:
       - name: Download Dependencies
         run: go mod download
 
-      - name: Run Unit And E2E Tests
-        run: go test ./... -coverprofile=coverage.out
+      - name: Run Unit Tests
+        shell: bash
+        run: |
+          PACKAGES="$(go list ./... | grep -v '^github.com/yedou37/dbd/test/e2e$' | tr '\n' ' ')"
+          go test ${PACKAGES} -coverprofile=coverage.out
 
       - name: Show Coverage Summary
         run: go tool cover -func=coverage.out
@@ -34,3 +40,22 @@ jobs:
         with:
           name: coverage.out
           path: coverage.out
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Download Dependencies
+        run: go mod download
+
+      - name: Run E2E Tests
+        run: go test ./test/e2e -v -timeout 25m

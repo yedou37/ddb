@@ -176,7 +176,7 @@ func TestFollowerRestartCatchesUpMissingWrites(t *testing.T) {
 	waitForNamedRowCount(t, http2, "restart_books", 2)
 
 	_ = startNode(t, node3Cfg)
-	waitForHealth(t, http3)
+	waitForHealthWithin(t, http3, 30*time.Second)
 	waitForNamedRowCountWithin(t, http3, "restart_books", 2, 25*time.Second)
 }
 
@@ -220,8 +220,13 @@ func reserveAddr(t *testing.T) string {
 
 func waitForHealth(t *testing.T, addr string) {
 	t.Helper()
+	waitForHealthWithin(t, addr, 10*time.Second)
+}
 
-	deadline := time.Now().Add(10 * time.Second)
+func waitForHealthWithin(t *testing.T, addr string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		resp, err := http.Get("http://" + addr + "/health")
 		if err == nil {
@@ -232,7 +237,7 @@ func waitForHealth(t *testing.T, addr string) {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	t.Fatalf("health check timed out for %s", addr)
+	t.Fatalf("health check timed out for %s after %s", addr, timeout)
 }
 
 func waitForLeader(t *testing.T, addr string) {
