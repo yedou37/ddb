@@ -1,0 +1,72 @@
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.9
+    container_name: dbd-etcd
+    command:
+      - etcd
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-client-urls=http://0.0.0.0:2379
+    ports:
+      - "2379:2379"
+
+  node1:
+    build: .
+    container_name: dbd-node1
+    depends_on:
+      - etcd
+    environment:
+      NODE_ID: node1
+      HTTP_ADDR: node1:8080
+      RAFT_ADDR: node1:7000
+      RAFT_DIR: /data/raft
+      DB_PATH: /data/data.db
+      ETCD_ADDR: etcd:2379
+      BOOTSTRAP: "true"
+    ports:
+      - "18080:8080"
+      - "17000:7000"
+    volumes:
+      - node1-data:/data
+
+  node2:
+    build: .
+    container_name: dbd-node2
+    depends_on:
+      - etcd
+      - node1
+    environment:
+      NODE_ID: node2
+      HTTP_ADDR: node2:8080
+      RAFT_ADDR: node2:7000
+      RAFT_DIR: /data/raft
+      DB_PATH: /data/data.db
+      ETCD_ADDR: etcd:2379
+    ports:
+      - "18081:8080"
+      - "17001:7000"
+    volumes:
+      - node2-data:/data
+
+  node3:
+    build: .
+    container_name: dbd-node3
+    depends_on:
+      - etcd
+      - node1
+    environment:
+      NODE_ID: node3
+      HTTP_ADDR: node3:8080
+      RAFT_ADDR: node3:7000
+      RAFT_DIR: /data/raft
+      DB_PATH: /data/data.db
+      ETCD_ADDR: etcd:2379
+    ports:
+      - "18082:8080"
+      - "17002:7000"
+    volumes:
+      - node3-data:/data
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:
