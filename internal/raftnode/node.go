@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,11 +23,57 @@ import (
 
 type Node struct {
 	raft           *raft.Raft
+	logStore       *raftboltdb.BoltStore
+	stableStore    *raftboltdb.BoltStore
+	transport      *raft.NetworkTransport
 	nodeID         string
 	raftAddr       string
 	mu             sync.RWMutex
 	leaderHTTPHint string
 }
+
+// #region debug-point B:raft-new
+func reportRaftDebugEvent(hypothesisID, location, msg string, data map[string]any) {
+	serverURL := "http://127.0.0.1:7777/event"
+	sessionID := "ci-node3-restart"
+	if content, err := os.ReadFile(".dbg/ci-node3-restart.env"); err == nil {
+		for _, line := range strings.Split(string(content), "\n") {
+			if value, ok := strings.CutPrefix(line, "DEBUG_SERVER_URL="); ok {
+				serverURL = value
+			}
+			if value, ok := strings.CutPrefix(line, "DEBUG_SESSION_ID="); ok {
+				sessionID = value
+			}
+		}
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"sessionId":    sessionID,
+		"runId":        "pre-fix",
+		"hypothesisId": hypothesisID,
+		"location":     location,
+		"msg":          msg,
+		"data":         data,
+		"ts":           time.Now().UnixMilli(),
+	})
+	if err != nil {
+		return
+	}
+
+	go func(url string, body []byte) {
+		request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			return
+		}
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err == nil && response != nil {
+			_ = response.Body.Close()
+		}
+	}(serverURL, payload)
+}
+
+// #endregion
 
 func New(cfg config.ServerConfig, store *storage.Store) (*Node, error) {
 	stateDir := raftStateDir(cfg.RaftDir, cfg.NodeID)
@@ -37,47 +84,115 @@ func New(cfg config.ServerConfig, store *storage.Store) (*Node, error) {
 	raftConfig := raft.DefaultConfig()
 	raftConfig.LocalID = raft.ServerID(cfg.NodeID)
 
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:log-store-begin", "[DEBUG] raft log store open begin", map[string]any{
+		"nodeID": cfg.NodeID,
+		"path":   filepath.Join(stateDir, "raft-log.db"),
+	})
 	logStore, err := raftboltdb.NewBoltStore(filepath.Join(stateDir, "raft-log.db"))
 	if err != nil {
+		reportRaftDebugEvent("B", "internal/raftnode/node.go:New:log-store-error", "[DEBUG] raft log store open failed", map[string]any{
+			"nodeID": cfg.NodeID,
+			"error":  err.Error(),
+		})
 		return nil, err
 	}
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:log-store-ok", "[DEBUG] raft log store open succeeded", map[string]any{
+		"nodeID": cfg.NodeID,
+	})
 
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:stable-store-begin", "[DEBUG] raft stable store open begin", map[string]any{
+		"nodeID": cfg.NodeID,
+		"path":   filepath.Join(stateDir, "raft-stable.db"),
+	})
 	stableStore, err := raftboltdb.NewBoltStore(filepath.Join(stateDir, "raft-stable.db"))
 	if err != nil {
+		reportRaftDebugEvent("B", "internal/raftnode/node.go:New:stable-store-error", "[DEBUG] raft stable store open failed", map[string]any{
+			"nodeID": cfg.NodeID,
+			"error":  err.Error(),
+		})
 		return nil, err
 	}
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:stable-store-ok", "[DEBUG] raft stable store open succeeded", map[string]any{
+		"nodeID": cfg.NodeID,
+	})
 
 	snapshotDir := filepath.Join(stateDir, "snapshots")
 	if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
 		return nil, err
 	}
 
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:snapshot-store-begin", "[DEBUG] raft snapshot store open begin", map[string]any{
+		"nodeID": cfg.NodeID,
+		"path":   snapshotDir,
+	})
 	snapshotStore, err := raft.NewFileSnapshotStore(snapshotDir, 2, io.Discard)
 	if err != nil {
+		reportRaftDebugEvent("B", "internal/raftnode/node.go:New:snapshot-store-error", "[DEBUG] raft snapshot store open failed", map[string]any{
+			"nodeID": cfg.NodeID,
+			"error":  err.Error(),
+		})
 		return nil, err
 	}
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:snapshot-store-ok", "[DEBUG] raft snapshot store open succeeded", map[string]any{
+		"nodeID": cfg.NodeID,
+	})
 
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:transport-begin", "[DEBUG] raft transport open begin", map[string]any{
+		"nodeID":   cfg.NodeID,
+		"raftAddr": cfg.RaftAddr,
+	})
 	transport, err := raft.NewTCPTransport(cfg.RaftAddr, nil, 3, 10*time.Second, io.Discard)
 	if err != nil {
+		reportRaftDebugEvent("B", "internal/raftnode/node.go:New:transport-error", "[DEBUG] raft transport open failed", map[string]any{
+			"nodeID": cfg.NodeID,
+			"error":  err.Error(),
+		})
 		return nil, err
 	}
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:transport-ok", "[DEBUG] raft transport open succeeded", map[string]any{
+		"nodeID": cfg.NodeID,
+	})
 
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:raft-begin", "[DEBUG] raft.NewRaft begin", map[string]any{
+		"nodeID": cfg.NodeID,
+	})
 	instance, err := raft.NewRaft(raftConfig, newFSM(store), logStore, stableStore, snapshotStore, transport)
 	if err != nil {
+		reportRaftDebugEvent("B", "internal/raftnode/node.go:New:raft-error", "[DEBUG] raft.NewRaft failed", map[string]any{
+			"nodeID": cfg.NodeID,
+			"error":  err.Error(),
+		})
 		return nil, err
 	}
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:raft-ok", "[DEBUG] raft.NewRaft succeeded", map[string]any{
+		"nodeID": cfg.NodeID,
+	})
 
 	node := &Node{
 		raft:           instance,
+		logStore:       logStore,
+		stableStore:    stableStore,
+		transport:      transport,
 		nodeID:         cfg.NodeID,
 		raftAddr:       cfg.RaftAddr,
 		leaderHTTPHint: normalizeHTTPAddr(cfg.HTTPAddr),
 	}
 
-	hasExistingState, err := raft.HasExistingState(logStore, stableStore, snapshotStore)
-	if err != nil {
-		return nil, err
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:existing-state-begin", "[DEBUG] raft.HasExistingState begin", map[string]any{
+		"nodeID": cfg.NodeID,
+	})
+	hasExistingState, existingStateErr := raft.HasExistingState(logStore, stableStore, snapshotStore)
+	if existingStateErr != nil {
+		reportRaftDebugEvent("B", "internal/raftnode/node.go:New:existing-state-error", "[DEBUG] raft.HasExistingState failed", map[string]any{
+			"nodeID": cfg.NodeID,
+			"error":  existingStateErr.Error(),
+		})
+		return nil, existingStateErr
 	}
+	reportRaftDebugEvent("B", "internal/raftnode/node.go:New:existing-state-ok", "[DEBUG] raft.HasExistingState succeeded", map[string]any{
+		"nodeID":           cfg.NodeID,
+		"hasExistingState": hasExistingState,
+	})
 
 	if cfg.Bootstrap && !hasExistingState {
 		future := instance.BootstrapCluster(raft.Configuration{
@@ -241,7 +356,28 @@ func (n *Node) RejoinCluster(ctx context.Context, leaderHTTPAddr, nodeID, raftAd
 }
 
 func (n *Node) Close() error {
-	return n.raft.Shutdown().Error()
+	var closeErr error
+	if n.raft != nil {
+		if err := n.raft.Shutdown().Error(); err != nil {
+			closeErr = err
+		}
+	}
+	if n.transport != nil {
+		if err := n.transport.Close(); err != nil && closeErr == nil {
+			closeErr = err
+		}
+	}
+	if n.logStore != nil {
+		if err := n.logStore.Close(); err != nil && closeErr == nil {
+			closeErr = err
+		}
+	}
+	if n.stableStore != nil {
+		if err := n.stableStore.Close(); err != nil && closeErr == nil {
+			closeErr = err
+		}
+	}
+	return closeErr
 }
 
 func (n *Node) LeaderHTTPHint() string {
