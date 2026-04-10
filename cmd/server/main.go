@@ -5,8 +5,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/yedou37/dbd/internal/app"
-	"github.com/yedou37/dbd/internal/config"
+	"github.com/yedou37/ddb/internal/app"
+	"github.com/yedou37/ddb/internal/config"
 )
 
 type serverApp interface {

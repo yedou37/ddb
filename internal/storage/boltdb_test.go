@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yedou37/dbd/internal/model"
+	"github.com/yedou37/ddb/internal/model"
 )
 
 func TestStoreCRUDFlow(t *testing.T) {

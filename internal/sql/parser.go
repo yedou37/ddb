@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yedou37/dbd/internal/model"
+	"github.com/yedou37/ddb/internal/model"
 )
 
 func Parse(input string) (model.Statement, error) {

@@ -10,11 +10,11 @@ import (
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 
-	"github.com/yedou37/dbd/internal/model"
+	"github.com/yedou37/ddb/internal/model"
 )
 
-const nodesPrefix = "/dbd/nodes/"
-const removedPrefix = "/dbd/removed/"
+const nodesPrefix = "/ddb/nodes/"
+const removedPrefix = "/ddb/removed/"
 
 type Client struct {
 	cli         *clientv3.Client

@@ -7,11 +7,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/yedou37/dbd/internal/discovery"
-	"github.com/yedou37/dbd/internal/model"
-	"github.com/yedou37/dbd/internal/raftnode"
-	sqlparser "github.com/yedou37/dbd/internal/sql"
-	"github.com/yedou37/dbd/internal/storage"
+	"github.com/yedou37/ddb/internal/discovery"
+	"github.com/yedou37/ddb/internal/model"
+	"github.com/yedou37/ddb/internal/raftnode"
+	sqlparser "github.com/yedou37/ddb/internal/sql"
+	"github.com/yedou37/ddb/internal/storage"
 )
 
 type QueryService struct {

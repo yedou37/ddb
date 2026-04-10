@@ -7,8 +7,8 @@ import (
 
 	"github.com/hashicorp/raft"
 
-	"github.com/yedou37/dbd/internal/model"
-	"github.com/yedou37/dbd/internal/storage"
+	"github.com/yedou37/ddb/internal/model"
+	"github.com/yedou37/ddb/internal/storage"
 )
 
 func TestDecodeApplyResponse(t *testing.T) {

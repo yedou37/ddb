@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedou37/dbd/internal/config"
-	"github.com/yedou37/dbd/internal/discovery"
-	"github.com/yedou37/dbd/internal/model"
-	sqlparser "github.com/yedou37/dbd/internal/sql"
+	"github.com/yedou37/ddb/internal/config"
+	"github.com/yedou37/ddb/internal/discovery"
+	"github.com/yedou37/ddb/internal/model"
+	sqlparser "github.com/yedou37/ddb/internal/sql"
 )
 
 var httpClient = &http.Client{Timeout: 5 * time.Second}

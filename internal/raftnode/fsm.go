@@ -5,9 +5,9 @@ import (
 
 	"github.com/hashicorp/raft"
 
-	"github.com/yedou37/dbd/internal/model"
-	sqlparser "github.com/yedou37/dbd/internal/sql"
-	"github.com/yedou37/dbd/internal/storage"
+	"github.com/yedou37/ddb/internal/model"
+	sqlparser "github.com/yedou37/ddb/internal/sql"
+	"github.com/yedou37/ddb/internal/storage"
 )
 
 type fsm struct {

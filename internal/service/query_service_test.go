@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yedou37/dbd/internal/model"
-	"github.com/yedou37/dbd/internal/storage"
+	"github.com/yedou37/ddb/internal/model"
+	"github.com/yedou37/ddb/internal/storage"
 )
 
 func TestQueryServiceStandaloneFlow(t *testing.T) {

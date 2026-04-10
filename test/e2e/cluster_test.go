@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	apppkg "github.com/yedou37/dbd/internal/app"
-	"github.com/yedou37/dbd/internal/config"
-	"github.com/yedou37/dbd/internal/model"
+	apppkg "github.com/yedou37/ddb/internal/app"
+	"github.com/yedou37/ddb/internal/config"
+	"github.com/yedou37/ddb/internal/model"
 )
 
 type runningNode struct {

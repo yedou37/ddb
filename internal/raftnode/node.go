@@ -15,9 +15,9 @@ import (
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 
-	"github.com/yedou37/dbd/internal/config"
-	"github.com/yedou37/dbd/internal/model"
-	"github.com/yedou37/dbd/internal/storage"
+	"github.com/yedou37/ddb/internal/config"
+	"github.com/yedou37/ddb/internal/model"
+	"github.com/yedou37/ddb/internal/storage"
 )
 
 type Node struct {
@@ -51,8 +51,8 @@ func New(cfg config.ServerConfig, store *storage.Store) (*Node, error) {
 	}
 
 	snapshotDir := filepath.Join(stateDir, "snapshots")
-	if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
-		return nil, err
+	if mkdirErr := os.MkdirAll(snapshotDir, 0o755); mkdirErr != nil {
+		return nil, mkdirErr
 	}
 
 	snapshotStore, err := raft.NewFileSnapshotStore(snapshotDir, 2, io.Discard)

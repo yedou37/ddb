@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"github.com/yedou37/dbd/internal/config"
-	"github.com/yedou37/dbd/internal/model"
+	"github.com/yedou37/ddb/internal/config"
+	"github.com/yedou37/ddb/internal/model"
 )
 
 func TestCurrentNodeInfo(t *testing.T) {

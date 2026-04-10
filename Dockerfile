@@ -7,8 +7,8 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/dbd-server ./cmd/server && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/dbd-cli ./cmd/cli
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/ddb-server ./cmd/server && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/ddb-cli ./cmd/cli
 
 FROM alpine:3.20
 
@@ -17,8 +17,8 @@ RUN apk add --no-cache ca-certificates && \
 
 WORKDIR /app
 
-COPY --from=build /out/dbd-server /usr/local/bin/dbd-server
-COPY --from=build /out/dbd-cli /usr/local/bin/dbd-cli
+COPY --from=build /out/ddb-server /usr/local/bin/ddb-server
+COPY --from=build /out/ddb-cli /usr/local/bin/ddb-cli
 
 RUN mkdir -p /data && chown -R app:app /data /app
 
@@ -36,4 +36,4 @@ ENV NODE_ID=node1 \
 
 EXPOSE 8080 7000
 
-ENTRYPOINT ["dbd-server"]
+ENTRYPOINT ["ddb-server"]

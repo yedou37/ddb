@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yedou37/dbd/internal/api"
-	"github.com/yedou37/dbd/internal/config"
-	"github.com/yedou37/dbd/internal/discovery"
-	"github.com/yedou37/dbd/internal/model"
-	"github.com/yedou37/dbd/internal/raftnode"
-	"github.com/yedou37/dbd/internal/service"
-	"github.com/yedou37/dbd/internal/storage"
+	"github.com/yedou37/ddb/internal/api"
+	"github.com/yedou37/ddb/internal/config"
+	"github.com/yedou37/ddb/internal/discovery"
+	"github.com/yedou37/ddb/internal/model"
+	"github.com/yedou37/ddb/internal/raftnode"
+	"github.com/yedou37/ddb/internal/service"
+	"github.com/yedou37/ddb/internal/storage"
 )
 
 type App struct {

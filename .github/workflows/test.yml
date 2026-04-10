@@ -29,7 +29,7 @@ jobs:
       - name: Run Unit Tests
         shell: bash
         run: |
-          PACKAGES="$(go list ./... | grep -v '^github.com/yedou37/dbd/test/e2e$' | tr '\n' ' ')"
+          PACKAGES="$(go list ./... | grep -v '^github.com/yedou37/ddb/test/e2e$' | tr '\n' ' ')"
           go test ${PACKAGES} -coverprofile=coverage.out
 
       - name: Show Coverage Summary

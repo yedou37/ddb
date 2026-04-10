@@ -1,4 +1,4 @@
-module github.com/yedou37/dbd
+module github.com/yedou37/ddb
 
 go 1.25.8
 

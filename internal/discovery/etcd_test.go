@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/yedou37/dbd/internal/model"
+	"github.com/yedou37/ddb/internal/model"
 )
 
 func TestNilClientBehaviors(t *testing.T) {

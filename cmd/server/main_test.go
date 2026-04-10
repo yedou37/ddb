@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/yedou37/dbd/internal/config"
+	"github.com/yedou37/ddb/internal/config"
 )
 
 func TestRunSuccessAndServerClosed(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"github.com/yedou37/dbd/internal/model"
+	"github.com/yedou37/ddb/internal/model"
 )
 
 const schemasBucket = "__schemas"

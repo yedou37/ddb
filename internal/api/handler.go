@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/yedou37/dbd/internal/model"
-	"github.com/yedou37/dbd/internal/service"
+	"github.com/yedou37/ddb/internal/model"
+	"github.com/yedou37/ddb/internal/service"
 )
 
 func NewHandler(queryService *service.QueryService) http.Handler {

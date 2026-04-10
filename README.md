@@ -1,4 +1,4 @@
-# DBD
+# DDB
 
 A small distributed database prototype built with Go, BoltDB, HashiCorp Raft, and etcd.
 
@@ -40,7 +40,7 @@ A small distributed database prototype built with Go, BoltDB, HashiCorp Raft, an
 ### 1. Start etcd
 
 ```bash
-docker run -d --name dbd-etcd -p 2379:2379 \
+docker run -d --name ddb-etcd -p 2379:2379 \
   quay.io/coreos/etcd:v3.5.9 \
   etcd --advertise-client-urls=http://127.0.0.1:2379 \
        --listen-client-urls=http://0.0.0.0:2379
@@ -53,8 +53,8 @@ go run ./cmd/server \
   --node-id=node1 \
   --http-addr=127.0.0.1:20080 \
   --raft-addr=127.0.0.1:20000 \
-  --raft-dir=/tmp/dbd-node1/raft \
-  --db-path=/tmp/dbd-node1/data.db \
+  --raft-dir=/tmp/ddb-node1/raft \
+  --db-path=/tmp/ddb-node1/data.db \
   --bootstrap=true \
   --etcd=127.0.0.1:2379
 ```
@@ -66,8 +66,8 @@ go run ./cmd/server \
   --node-id=node2 \
   --http-addr=127.0.0.1:20081 \
   --raft-addr=127.0.0.1:20001 \
-  --raft-dir=/tmp/dbd-node2/raft \
-  --db-path=/tmp/dbd-node2/data.db \
+  --raft-dir=/tmp/ddb-node2/raft \
+  --db-path=/tmp/ddb-node2/data.db \
   --etcd=127.0.0.1:2379
 ```
 
@@ -76,8 +76,8 @@ go run ./cmd/server \
   --node-id=node3 \
   --http-addr=127.0.0.1:20082 \
   --raft-addr=127.0.0.1:20002 \
-  --raft-dir=/tmp/dbd-node3/raft \
-  --db-path=/tmp/dbd-node3/data.db \
+  --raft-dir=/tmp/ddb-node3/raft \
+  --db-path=/tmp/ddb-node3/data.db \
   --etcd=127.0.0.1:2379
 ```
 
@@ -115,8 +115,8 @@ go run ./cmd/server \
   --node-id=node3 \
   --http-addr=127.0.0.1:20082 \
   --raft-addr=127.0.0.1:20002 \
-  --raft-dir=/tmp/dbd-node3/raft \
-  --db-path=/tmp/dbd-node3/data.db \
+  --raft-dir=/tmp/ddb-node3/raft \
+  --db-path=/tmp/ddb-node3/data.db \
   --etcd=127.0.0.1:2379 \
   --rejoin=true
 ```
@@ -132,7 +132,7 @@ go run ./cmd/cli --etcd=127.0.0.1:2379 cluster rejoin node3 127.0.0.1:20002 127.
 Build the image:
 
 ```bash
-docker build -t dbd:latest .
+docker build -t ddb:latest .
 ```
 
 Start etcd + 3 nodes:
@@ -183,7 +183,7 @@ git init
 git add .
 git commit -m "init: distributed database MVP"
 git branch -M main
-git remote add origin git@github.com:<your-name>/dbd.git
+git remote add origin git@github.com:<your-name>/ddb.git
 git push -u origin main
 ```
 
