@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
+	"sync"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -17,6 +19,8 @@ type Client struct {
 	cli         *clientv3.Client
 	leaseID     clientv3.LeaseID
 	cancelRenew context.CancelFunc
+	mu          sync.RWMutex
+	lastNode    *model.NodeInfo
 }
 
 func New(endpoints []string) (*Client, error) {
@@ -63,12 +67,34 @@ func (c *Client) Register(ctx context.Context, node model.NodeInfo) error {
 
 	c.leaseID = lease.ID
 	c.cancelRenew = cancel
+	c.setLastNode(node)
 
 	go func() {
 		for range keepAlive {
 		}
 	}()
 
+	return nil
+}
+
+func (c *Client) Update(ctx context.Context, node model.NodeInfo) error {
+	if c == nil || c.cli == nil {
+		return nil
+	}
+	if c.leaseID == 0 {
+		return c.Register(ctx, node)
+	}
+
+	payload, err := json.Marshal(node)
+	if err != nil {
+		return err
+	}
+
+	if _, err := c.cli.Put(ctx, nodesPrefix+node.ID, string(payload), clientv3.WithLease(c.leaseID)); err != nil {
+		return err
+	}
+
+	c.setLastNode(node)
 	return nil
 }
 
@@ -90,6 +116,16 @@ func (c *Client) ListNodes(ctx context.Context) ([]model.NodeInfo, error) {
 		}
 		nodes = append(nodes, node)
 	}
+
+	slices.SortFunc(nodes, func(a, b model.NodeInfo) int {
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
 
 	return nodes, nil
 }
@@ -121,4 +157,11 @@ func (c *Client) Close() error {
 		return c.cli.Close()
 	}
 	return nil
+}
+
+func (c *Client) setLastNode(node model.NodeInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	copyNode := node
+	c.lastNode = &copyNode
 }

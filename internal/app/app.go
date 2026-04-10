@@ -20,6 +20,7 @@ type App struct {
 	store     *storage.Store
 	discovery *discovery.Client
 	cfg       config.ServerConfig
+	stopCh    chan struct{}
 }
 
 func NewServerApp(cfg config.ServerConfig) (*App, error) {
@@ -55,15 +56,11 @@ func NewServerApp(cfg config.ServerConfig) (*App, error) {
 		store:     store,
 		discovery: discoveryClient,
 		cfg:       cfg,
+		stopCh:    make(chan struct{}),
 	}
 
 	if discoveryClient != nil {
-		err = discoveryClient.Register(context.Background(), model.NodeInfo{
-			ID:       cfg.NodeID,
-			RaftAddr: cfg.RaftAddr,
-			HTTPAddr: cfg.HTTPAddr,
-			IsLeader: cfg.Bootstrap,
-		})
+		err = discoveryClient.Register(context.Background(), app.currentNodeInfo())
 		if err != nil {
 			_ = app.Close()
 			return nil, err
@@ -74,11 +71,22 @@ func NewServerApp(cfg config.ServerConfig) (*App, error) {
 }
 
 func (a *App) Run() error {
-	if a.cfg.JoinAddr != "" {
+	go a.syncNodeState()
+
+	joinAddr := a.cfg.JoinAddr
+	if joinAddr == "" && !a.cfg.Bootstrap && a.discovery != nil {
+		var err error
+		joinAddr, err = a.discoverLeaderHTTP(context.Background())
+		if err != nil {
+			return err
+		}
+	}
+
+	if joinAddr != "" {
 		var err error
 		for attempt := 0; attempt < 10; attempt++ {
 			time.Sleep(500 * time.Millisecond)
-			err = a.raftNode.JoinCluster(context.Background(), a.cfg.JoinAddr, a.cfg.NodeID, a.cfg.RaftAddr, a.cfg.HTTPAddr)
+			err = a.raftNode.JoinCluster(context.Background(), joinAddr, a.cfg.NodeID, a.cfg.RaftAddr, a.cfg.HTTPAddr)
 			if err == nil {
 				break
 			}
@@ -91,6 +99,11 @@ func (a *App) Run() error {
 }
 
 func (a *App) Close() error {
+	select {
+	case <-a.stopCh:
+	default:
+		close(a.stopCh)
+	}
 	if a.raftNode != nil {
 		_ = a.raftNode.Close()
 	}
@@ -101,4 +114,64 @@ func (a *App) Close() error {
 		_ = a.store.Close()
 	}
 	return nil
+}
+
+func (a *App) syncNodeState() {
+	if a.discovery == nil {
+		return
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.stopCh:
+			return
+		case <-ticker.C:
+			_ = a.discovery.Update(context.Background(), a.currentNodeInfo())
+		}
+	}
+}
+
+func (a *App) currentNodeInfo() model.NodeInfo {
+	return model.NodeInfo{
+		ID:       a.cfg.NodeID,
+		RaftAddr: a.cfg.RaftAddr,
+		HTTPAddr: a.cfg.HTTPAddr,
+		IsLeader: a.raftNode != nil && a.raftNode.IsLeader(),
+	}
+}
+
+func (a *App) discoverLeaderHTTP(ctx context.Context) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 20; attempt++ {
+		nodes, err := a.discovery.ListNodes(ctx)
+		if err != nil {
+			lastErr = err
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		for _, node := range nodes {
+			if node.ID == a.cfg.NodeID || node.HTTPAddr == "" {
+				continue
+			}
+			if node.IsLeader {
+				return node.HTTPAddr, nil
+			}
+		}
+		if len(nodes) > 0 {
+			for _, node := range nodes {
+				if node.ID != a.cfg.NodeID && node.HTTPAddr != "" {
+					return node.HTTPAddr, nil
+				}
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", context.DeadlineExceeded
 }

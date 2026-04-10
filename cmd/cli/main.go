@@ -69,7 +69,7 @@ func runSQL(ctx context.Context, cfg config.CLIConfig, discoveryClient *discover
 			return err
 		}
 	} else if targetURL == "" {
-		targetURL, err = leaderURL(ctx, cfg, discoveryClient)
+		targetURL, err = readURL(ctx, cfg, discoveryClient)
 		if err != nil {
 			return err
 		}
@@ -175,6 +175,13 @@ func getJSON[T any](url string) (T, error) {
 }
 
 func leaderURL(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client) (string, error) {
+	if discoveryClient != nil {
+		leader, err := discoveryClient.FindLeader(ctx)
+		if err == nil && leader.HTTPAddr != "" {
+			return normalizeURL(leader.HTTPAddr), nil
+		}
+	}
+
 	if cfg.NodeURL != "" {
 		leader, err := getJSON[model.NodeInfo](normalizeURL(cfg.NodeURL) + "/leader")
 		if err == nil && leader.HTTPAddr != "" {
@@ -203,6 +210,25 @@ func leaderURL(ctx context.Context, cfg config.CLIConfig, discoveryClient *disco
 	}
 
 	return "", fmt.Errorf("leader not found: set --etcd or --node-url")
+}
+
+func readURL(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client) (string, error) {
+	if cfg.NodeURL != "" {
+		return normalizeURL(cfg.NodeURL), nil
+	}
+
+	if discoveryClient != nil {
+		nodes, err := discoveryClient.ListNodes(ctx)
+		if err == nil {
+			for _, node := range nodes {
+				if node.HTTPAddr != "" {
+					return normalizeURL(node.HTTPAddr), nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("read target not found: set --etcd or --node-url")
 }
 
 func members(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client) ([]model.NodeInfo, error) {
