@@ -48,7 +48,7 @@ func main() {
 		if len(args) < 2 {
 			log.Fatal("cluster command requires a subcommand")
 		}
-		if err := runCluster(context.Background(), cfg, discoveryClient, args[1]); err != nil {
+		if err := runCluster(context.Background(), cfg, discoveryClient, args[1:]); err != nil {
 			log.Fatal(err)
 		}
 	default:
@@ -83,7 +83,8 @@ func runSQL(ctx context.Context, cfg config.CLIConfig, discoveryClient *discover
 	return printJSON(response)
 }
 
-func runCluster(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client, command string) error {
+func runCluster(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client, args []string) error {
+	command := args[0]
 	switch command {
 	case "leader":
 		url, err := leaderURL(ctx, cfg, discoveryClient)
@@ -101,6 +102,25 @@ func runCluster(ctx context.Context, cfg config.CLIConfig, discoveryClient *disc
 			return err
 		}
 		return printJSON(members)
+	case "remove":
+		if len(args) < 2 {
+			return fmt.Errorf("cluster remove requires a node id")
+		}
+		target := args[1]
+		leader, err := leaderURL(ctx, cfg, discoveryClient)
+		if err != nil {
+			return err
+		}
+		return removeNode(leader, target)
+	case "rejoin":
+		if len(args) < 4 {
+			return fmt.Errorf("cluster rejoin requires: <node-id> <raft-addr> <http-addr>")
+		}
+		leader, err := leaderURL(ctx, cfg, discoveryClient)
+		if err != nil {
+			return err
+		}
+		return rejoinNode(leader, args[1], args[2], args[3])
 	case "status":
 		members, err := members(ctx, cfg, discoveryClient)
 		if err != nil {
@@ -108,6 +128,9 @@ func runCluster(ctx context.Context, cfg config.CLIConfig, discoveryClient *disc
 		}
 		statuses := make([]model.StatusResponse, 0, len(members))
 		for _, member := range members {
+			if member.Removed || !member.Online || member.HTTPAddr == "" {
+				continue
+			}
 			status, err := getJSON[model.StatusResponse](normalizeURL(member.HTTPAddr) + "/status")
 			if err != nil {
 				return err
@@ -231,11 +254,14 @@ func readURL(ctx context.Context, cfg config.CLIConfig, discoveryClient *discove
 	return "", fmt.Errorf("read target not found: set --etcd or --node-url")
 }
 
-func members(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client) ([]model.NodeInfo, error) {
+func members(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client) ([]model.ClusterMember, error) {
 	if discoveryClient != nil {
-		list, err := discoveryClient.ListNodes(ctx)
-		if err == nil && len(list) > 0 {
-			return list, nil
+		leader, err := leaderURL(ctx, cfg, discoveryClient)
+		if err == nil {
+			list, err := getJSON[[]model.ClusterMember](normalizeURL(leader) + "/members")
+			if err == nil && len(list) > 0 {
+				return list, nil
+			}
 		}
 	}
 
@@ -243,11 +269,63 @@ func members(ctx context.Context, cfg config.CLIConfig, discoveryClient *discove
 		return nil, fmt.Errorf("members not found: set --etcd or --node-url")
 	}
 
-	list, err := getJSON[[]model.NodeInfo](normalizeURL(cfg.NodeURL) + "/members")
+	list, err := getJSON[[]model.ClusterMember](normalizeURL(cfg.NodeURL) + "/members")
 	if err != nil {
 		return nil, err
 	}
 	return list, nil
+}
+
+func removeNode(baseURL, nodeID string) error {
+	body, err := json.Marshal(model.RemoveRequest{NodeID: nodeID})
+	if err != nil {
+		return err
+	}
+
+	response, err := httpClient.Post(normalizeURL(baseURL)+"/remove", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 400 {
+		payload, _ := io.ReadAll(response.Body)
+		return fmt.Errorf("%s", string(payload))
+	}
+
+	var payload map[string]string
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return err
+	}
+	return printJSON(payload)
+}
+
+func rejoinNode(baseURL, nodeID, raftAddr, httpAddr string) error {
+	body, err := json.Marshal(model.JoinRequest{
+		NodeID:   nodeID,
+		RaftAddr: raftAddr,
+		HTTPAddr: httpAddr,
+	})
+	if err != nil {
+		return err
+	}
+
+	response, err := httpClient.Post(normalizeURL(baseURL)+"/rejoin", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 400 {
+		payload, _ := io.ReadAll(response.Body)
+		return fmt.Errorf("%s", string(payload))
+	}
+
+	var payload map[string]string
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return err
+	}
+	return printJSON(payload)
 }
 
 func isWrite(statementType model.StatementType) bool {

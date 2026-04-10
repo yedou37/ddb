@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/yedou37/dbd/internal/discovery"
@@ -93,16 +94,87 @@ func (s *QueryService) Status(ctx context.Context) (model.StatusResponse, error)
 	}, nil
 }
 
-func (s *QueryService) Members(ctx context.Context) ([]model.NodeInfo, error) {
-	if s.discovery == nil {
-		return []model.NodeInfo{{
+func (s *QueryService) Members(ctx context.Context) ([]model.ClusterMember, error) {
+	if s.raftNode == nil {
+		return []model.ClusterMember{{
 			ID:       s.nodeID,
 			RaftAddr: s.raftAddr,
 			HTTPAddr: s.httpAddr,
-			IsLeader: s.raftNode == nil || s.raftNode.IsLeader(),
+			IsLeader: true,
+			InRaft:   true,
+			Online:   true,
+			Status:   "online-voter",
 		}}, nil
 	}
-	return s.discovery.ListNodes(ctx)
+
+	raftMembers, err := s.raftNode.Members()
+	if err != nil {
+		return nil, err
+	}
+
+	onlineNodes := make(map[string]model.NodeInfo)
+	if s.discovery != nil {
+		nodes, err := s.discovery.ListNodes(ctx)
+		if err == nil {
+			for _, node := range nodes {
+				onlineNodes[node.ID] = node
+			}
+		}
+	}
+
+	removed := make(map[string]bool)
+	if s.discovery != nil {
+		removedIDs, err := s.discovery.ListRemovedIDs(ctx)
+		if err == nil {
+			for _, id := range removedIDs {
+				removed[id] = true
+			}
+		}
+	}
+
+	members := make([]model.ClusterMember, 0, len(raftMembers)+len(removed))
+	seen := make(map[string]bool)
+	for _, member := range raftMembers {
+		info, online := onlineNodes[member.ID]
+		clusterMember := model.ClusterMember{
+			ID:       member.ID,
+			RaftAddr: member.RaftAddr,
+			InRaft:   true,
+			Online:   online,
+		}
+		if online {
+			clusterMember.HTTPAddr = info.HTTPAddr
+			clusterMember.IsLeader = info.IsLeader
+		}
+		clusterMember.Status = "offline-voter"
+		if online {
+			clusterMember.Status = "online-voter"
+		}
+		members = append(members, clusterMember)
+		seen[member.ID] = true
+	}
+
+	for id := range removed {
+		if seen[id] {
+			continue
+		}
+		members = append(members, model.ClusterMember{
+			ID:      id,
+			Removed: true,
+			Status:  "removed",
+		})
+	}
+
+	slices.SortFunc(members, func(a, b model.ClusterMember) int {
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
+	return members, nil
 }
 
 func (s *QueryService) Leader(ctx context.Context) (model.NodeInfo, error) {
@@ -161,6 +233,53 @@ func (s *QueryService) Join(_ context.Context, request model.JoinRequest) error 
 	if !s.raftNode.IsLeader() {
 		leader, _ := s.leaderAddr(context.Background())
 		return &LeaderRedirectError{Leader: leader}
+	}
+	if s.discovery != nil {
+		_ = s.discovery.UnmarkRemoved(context.Background(), request.NodeID)
+	}
+	return s.raftNode.Join(request.NodeID, request.RaftAddr)
+}
+
+func (s *QueryService) Remove(_ context.Context, request model.RemoveRequest) error {
+	if s.raftNode == nil {
+		return errors.New("raft is not enabled")
+	}
+	if !s.raftNode.IsLeader() {
+		leader, _ := s.leaderAddr(context.Background())
+		return &LeaderRedirectError{Leader: leader}
+	}
+	if request.NodeID == "" {
+		return errors.New("node_id is required")
+	}
+	if request.NodeID == s.nodeID {
+		return errors.New("removing current leader is not supported in this MVP")
+	}
+	if err := s.raftNode.Remove(request.NodeID); err != nil {
+		return err
+	}
+	if s.discovery != nil {
+		if err := s.discovery.MarkRemoved(context.Background(), request.NodeID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *QueryService) Rejoin(_ context.Context, request model.JoinRequest) error {
+	if s.raftNode == nil {
+		return errors.New("raft is not enabled")
+	}
+	if !s.raftNode.IsLeader() {
+		leader, _ := s.leaderAddr(context.Background())
+		return &LeaderRedirectError{Leader: leader}
+	}
+	if request.NodeID == "" || request.RaftAddr == "" {
+		return errors.New("node_id and raft_addr are required")
+	}
+	if s.discovery != nil {
+		if err := s.discovery.UnmarkRemoved(context.Background(), request.NodeID); err != nil {
+			return err
+		}
 	}
 	return s.raftNode.Join(request.NodeID, request.RaftAddr)
 }

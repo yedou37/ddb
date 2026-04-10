@@ -14,6 +14,7 @@ import (
 )
 
 const nodesPrefix = "/dbd/nodes/"
+const removedPrefix = "/dbd/removed/"
 
 type Client struct {
 	cli         *clientv3.Client
@@ -144,6 +145,51 @@ func (c *Client) FindLeader(ctx context.Context) (*model.NodeInfo, error) {
 	}
 
 	return nil, errors.New("leader not found")
+}
+
+func (c *Client) MarkRemoved(ctx context.Context, nodeID string) error {
+	if c == nil || c.cli == nil {
+		return nil
+	}
+	_, err := c.cli.Put(ctx, removedPrefix+nodeID, time.Now().Format(time.RFC3339))
+	return err
+}
+
+func (c *Client) UnmarkRemoved(ctx context.Context, nodeID string) error {
+	if c == nil || c.cli == nil {
+		return nil
+	}
+	_, err := c.cli.Delete(ctx, removedPrefix+nodeID)
+	return err
+}
+
+func (c *Client) IsRemoved(ctx context.Context, nodeID string) (bool, error) {
+	if c == nil || c.cli == nil {
+		return false, nil
+	}
+	response, err := c.cli.Get(ctx, removedPrefix+nodeID)
+	if err != nil {
+		return false, err
+	}
+	return len(response.Kvs) > 0, nil
+}
+
+func (c *Client) ListRemovedIDs(ctx context.Context) ([]string, error) {
+	if c == nil || c.cli == nil {
+		return nil, nil
+	}
+
+	response, err := c.cli.Get(ctx, removedPrefix, clientv3.WithPrefix())
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(response.Kvs))
+	for _, kv := range response.Kvs {
+		ids = append(ids, string(kv.Key[len(removedPrefix):]))
+	}
+	slices.Sort(ids)
+	return ids, nil
 }
 
 func (c *Client) Close() error {

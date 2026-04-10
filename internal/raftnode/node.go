@@ -155,6 +155,27 @@ func (n *Node) Join(nodeID, raftAddr string) error {
 	return addFuture.Error()
 }
 
+func (n *Node) Remove(nodeID string) error {
+	future := n.raft.RemoveServer(raft.ServerID(nodeID), 0, 0)
+	return future.Error()
+}
+
+func (n *Node) Members() ([]model.NodeInfo, error) {
+	future := n.raft.GetConfiguration()
+	if err := future.Error(); err != nil {
+		return nil, err
+	}
+
+	members := make([]model.NodeInfo, 0, len(future.Configuration().Servers))
+	for _, server := range future.Configuration().Servers {
+		members = append(members, model.NodeInfo{
+			ID:       string(server.ID),
+			RaftAddr: string(server.Address),
+		})
+	}
+	return members, nil
+}
+
 func (n *Node) JoinCluster(ctx context.Context, leaderHTTPAddr, nodeID, raftAddr, httpAddr string) error {
 	n.setLeaderHTTPHint(leaderHTTPAddr)
 
@@ -168,6 +189,38 @@ func (n *Node) JoinCluster(ctx context.Context, leaderHTTPAddr, nodeID, raftAddr
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeHTTPAddr(leaderHTTPAddr)+"/join", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= http.StatusBadRequest {
+		payload, _ := io.ReadAll(response.Body)
+		return fmt.Errorf("%s", string(payload))
+	}
+
+	return nil
+}
+
+func (n *Node) RejoinCluster(ctx context.Context, leaderHTTPAddr, nodeID, raftAddr, httpAddr string) error {
+	n.setLeaderHTTPHint(leaderHTTPAddr)
+
+	body, err := json.Marshal(model.JoinRequest{
+		NodeID:   nodeID,
+		RaftAddr: raftAddr,
+		HTTPAddr: httpAddr,
+	})
+	if err != nil {
+		return err
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeHTTPAddr(leaderHTTPAddr)+"/rejoin", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

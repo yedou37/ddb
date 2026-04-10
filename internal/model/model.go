@@ -63,6 +63,21 @@ type JoinRequest struct {
 	HTTPAddr string `json:"http_addr"`
 }
 
+type RemoveRequest struct {
+	NodeID string `json:"node_id"`
+}
+
+type ClusterMember struct {
+	ID       string `json:"id"`
+	RaftAddr string `json:"raft_addr,omitempty"`
+	HTTPAddr string `json:"http_addr,omitempty"`
+	IsLeader bool   `json:"is_leader"`
+	InRaft   bool   `json:"in_raft"`
+	Online   bool   `json:"online"`
+	Removed  bool   `json:"removed"`
+	Status   string `json:"status"`
+}
+
 type SQLResponse struct {
 	Success bool        `json:"success"`
 	Result  QueryResult `json:"result,omitempty"`

@@ -95,6 +95,54 @@ func NewHandler(queryService *service.QueryService) http.Handler {
 
 		writeJSON(w, http.StatusOK, map[string]string{"status": "joined"})
 	})
+	mux.HandleFunc("/remove", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		var request model.RemoveRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		if err := queryService.Remove(r.Context(), request); err != nil {
+			var redirectError *service.LeaderRedirectError
+			if errors.As(err, &redirectError) {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error(), "leader": redirectError.Leader})
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+	})
+	mux.HandleFunc("/rejoin", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+
+		var request model.JoinRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		if err := queryService.Rejoin(r.Context(), request); err != nil {
+			var redirectError *service.LeaderRedirectError
+			if errors.As(err, &redirectError) {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error(), "leader": redirectError.Leader})
+				return
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "rejoined"})
+	})
 
 	return mux
 }

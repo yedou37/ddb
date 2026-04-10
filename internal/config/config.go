@@ -12,6 +12,7 @@ type ServerConfig struct {
 	RaftAddr      string
 	RaftDir       string
 	Bootstrap     bool
+	Rejoin        bool
 	JoinAddr      string
 	DBPath        string
 	ETCDEndpoints []string
@@ -28,10 +29,16 @@ func ParseServerConfig() ServerConfig {
 	raftAddr := flag.String("raft-addr", envOrDefault("RAFT_ADDR", ":7000"), "")
 	raftDir := flag.String("raft-dir", envOrDefault("RAFT_DIR", "raft"), "")
 	bootstrap := flag.Bool("bootstrap", envOrDefault("BOOTSTRAP", "false") == "true", "")
+	rejoin := flag.Bool("rejoin", envOrDefault("REJOIN", "false") == "true", "")
 	joinAddr := flag.String("join", envOrDefault("JOIN_ADDR", ""), "")
 	dbPath := flag.String("db-path", envOrDefault("DB_PATH", "data.db"), "")
 	etcd := flag.String("etcd", envOrDefault("ETCD_ADDR", ""), "")
 	flag.Parse()
+
+	// Rejoin is a recovery path and must not bootstrap a brand-new cluster.
+	if *rejoin {
+		*bootstrap = false
+	}
 
 	return ServerConfig{
 		NodeID:        *nodeID,
@@ -39,6 +46,7 @@ func ParseServerConfig() ServerConfig {
 		RaftAddr:      *raftAddr,
 		RaftDir:       *raftDir,
 		Bootstrap:     *bootstrap,
+		Rejoin:        *rejoin,
 		JoinAddr:      *joinAddr,
 		DBPath:        *dbPath,
 		ETCDEndpoints: splitCSV(*etcd),
