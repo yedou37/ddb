@@ -63,7 +63,7 @@ func parseCreateTable(sql string) (model.Statement, error) {
 		Table:       table,
 		Definitions: definitions,
 		Raw:         sql,
-	}, setPrimaryKey(definitions, primaryKey)
+	}, setPrimaryKey(primaryKey)
 }
 
 func parseInsert(sql string) (model.Statement, error) {
@@ -213,7 +213,7 @@ func splitCommaAware(input string) []string {
 	return parts
 }
 
-func setPrimaryKey(definitions []model.ColumnDef, primaryKey string) error {
+func setPrimaryKey(primaryKey string) error {
 	if primaryKey == "" {
 		return fmt.Errorf("CREATE TABLE requires one PRIMARY KEY column")
 	}

@@ -9,12 +9,24 @@ import (
 	"github.com/yedou37/dbd/internal/config"
 )
 
-func main() {
-	cfg := config.ParseServerConfig()
+type serverApp interface {
+	Run() error
+	Close() error
+}
 
-	application, err := app.NewServerApp(cfg)
+var (
+	parseServerConfig = config.ParseServerConfig
+	newServerApp      = func(cfg config.ServerConfig) (serverApp, error) {
+		return app.NewServerApp(cfg)
+	}
+)
+
+func run() error {
+	cfg := parseServerConfig()
+
+	application, err := newServerApp(cfg)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer func() {
 		_ = application.Close()
@@ -24,6 +36,13 @@ func main() {
 
 	err = application.Run()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
 		log.Fatal(err)
 	}
 }
