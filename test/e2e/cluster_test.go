@@ -180,6 +180,117 @@ func TestFollowerRestartCatchesUpMissingWrites(t *testing.T) {
 	waitForNamedRowCountWithin(t, http3, "restart_books", 2, 25*time.Second)
 }
 
+func TestFollowerWriteReturnsLeaderRedirect(t *testing.T) {
+	http1, raft1 := reserveAddr(t), reserveAddr(t)
+	http2, raft2 := reserveAddr(t), reserveAddr(t)
+	http3, raft3 := reserveAddr(t), reserveAddr(t)
+
+	_ = startNode(t, config.ServerConfig{
+		NodeID:    "node1",
+		HTTPAddr:  http1,
+		RaftAddr:  raft1,
+		RaftDir:   filepath.Join(t.TempDir(), "raft1"),
+		DBPath:    filepath.Join(t.TempDir(), "db1.db"),
+		Bootstrap: true,
+	})
+	waitForHealth(t, http1)
+	waitForLeader(t, http1)
+
+	_ = startNode(t, config.ServerConfig{
+		NodeID:   "node2",
+		HTTPAddr: http2,
+		RaftAddr: raft2,
+		RaftDir:  filepath.Join(t.TempDir(), "raft2"),
+		DBPath:   filepath.Join(t.TempDir(), "db2.db"),
+		JoinAddr: http1,
+	})
+	waitForHealth(t, http2)
+
+	_ = startNode(t, config.ServerConfig{
+		NodeID:   "node3",
+		HTTPAddr: http3,
+		RaftAddr: raft3,
+		RaftDir:  filepath.Join(t.TempDir(), "raft3"),
+		DBPath:   filepath.Join(t.TempDir(), "db3.db"),
+		JoinAddr: http1,
+	})
+	waitForHealth(t, http3)
+
+	execSQL(t, http1, "CREATE TABLE redirect_books (id INT PRIMARY KEY, name TEXT)")
+
+	status, response := execSQLWithStatus(t, http2, "INSERT INTO redirect_books VALUES (1, 'from-follower')")
+	if status != http.StatusConflict {
+		t.Fatalf("follower write status = %d, want %d", status, http.StatusConflict)
+	}
+	if response.Success {
+		t.Fatalf("follower write response.Success = true, want false")
+	}
+	if got, want := response.Leader, "http://"+http1; got != want {
+		t.Fatalf("follower write leader = %q, want %q", got, want)
+	}
+
+	waitForNamedRowCount(t, http1, "redirect_books", 0)
+
+	execSQL(t, http1, "INSERT INTO redirect_books VALUES (1, 'from-leader')")
+	waitForNamedRowCount(t, http2, "redirect_books", 1)
+	waitForNamedRowCount(t, http3, "redirect_books", 1)
+}
+
+func TestDeleteReplicatesAcrossFollowers(t *testing.T) {
+	http1, raft1 := reserveAddr(t), reserveAddr(t)
+	http2, raft2 := reserveAddr(t), reserveAddr(t)
+	http3, raft3 := reserveAddr(t), reserveAddr(t)
+
+	_ = startNode(t, config.ServerConfig{
+		NodeID:    "node1",
+		HTTPAddr:  http1,
+		RaftAddr:  raft1,
+		RaftDir:   filepath.Join(t.TempDir(), "raft1"),
+		DBPath:    filepath.Join(t.TempDir(), "db1.db"),
+		Bootstrap: true,
+	})
+	waitForHealth(t, http1)
+	waitForLeader(t, http1)
+
+	_ = startNode(t, config.ServerConfig{
+		NodeID:   "node2",
+		HTTPAddr: http2,
+		RaftAddr: raft2,
+		RaftDir:  filepath.Join(t.TempDir(), "raft2"),
+		DBPath:   filepath.Join(t.TempDir(), "db2.db"),
+		JoinAddr: http1,
+	})
+	waitForHealth(t, http2)
+
+	_ = startNode(t, config.ServerConfig{
+		NodeID:   "node3",
+		HTTPAddr: http3,
+		RaftAddr: raft3,
+		RaftDir:  filepath.Join(t.TempDir(), "raft3"),
+		DBPath:   filepath.Join(t.TempDir(), "db3.db"),
+		JoinAddr: http1,
+	})
+	waitForHealth(t, http3)
+
+	execSQL(t, http1, "CREATE TABLE delete_books (id INT PRIMARY KEY, name TEXT)")
+	execSQL(t, http1, "INSERT INTO delete_books VALUES (1, 'first')")
+	execSQL(t, http1, "INSERT INTO delete_books VALUES (2, 'second')")
+	waitForNamedRowCount(t, http2, "delete_books", 2)
+	waitForNamedRowCount(t, http3, "delete_books", 2)
+
+	execSQL(t, http1, "DELETE FROM delete_books WHERE id = 1")
+	waitForNamedRowCount(t, http2, "delete_books", 1)
+	waitForNamedRowCount(t, http3, "delete_books", 1)
+
+	result := execSQL(t, http2, "SELECT * FROM delete_books")
+	if got, want := len(result.Result.Rows), 1; got != want {
+		t.Fatalf("len(result.Result.Rows) = %d, want %d", got, want)
+	}
+	if got, want := result.Result.Rows[0][0], float64(2); got != want {
+		t.Fatalf("remaining row primary key = %#v, want %#v", got, want)
+	}
+}
+
 func startNode(t *testing.T, cfg config.ServerConfig) *runningNode {
 	t.Helper()
 
@@ -261,6 +372,17 @@ func waitForLeader(t *testing.T, addr string) {
 func execSQL(t *testing.T, addr, statement string) model.SQLResponse {
 	t.Helper()
 
+	status, parsed := execSQLWithStatus(t, addr, statement)
+	if status != http.StatusOK || !parsed.Success {
+		data, _ := json.Marshal(parsed)
+		t.Fatalf("SQL %q failed: status=%d body=%s", statement, status, string(data))
+	}
+	return parsed
+}
+
+func execSQLWithStatus(t *testing.T, addr, statement string) (int, model.SQLResponse) {
+	t.Helper()
+
 	body, err := json.Marshal(model.SQLRequest{SQL: statement})
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
@@ -281,10 +403,7 @@ func execSQL(t *testing.T, addr, statement string) model.SQLResponse {
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if resp.StatusCode != http.StatusOK || !parsed.Success {
-		t.Fatalf("SQL %q failed: status=%d body=%s", statement, resp.StatusCode, string(data))
-	}
-	return parsed
+	return resp.StatusCode, parsed
 }
 
 func waitForRowCount(t *testing.T, addr string, want int) {

@@ -38,6 +38,40 @@ func TestNilClientBehaviors(t *testing.T) {
 	if removed {
 		t.Fatalf("IsRemoved(nil) = true, want false")
 	}
+
+	removedIDs, err := client.ListRemovedIDs(context.Background())
+	if err != nil {
+		t.Fatalf("ListRemovedIDs(nil) error = %v", err)
+	}
+	if removedIDs != nil {
+		t.Fatalf("ListRemovedIDs(nil) = %#v, want nil", removedIDs)
+	}
+
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close(nil) error = %v", err)
+	}
+}
+
+func TestNewWithoutEndpoints(t *testing.T) {
+	client, err := New(nil)
+	if err != nil {
+		t.Fatalf("New(nil) error = %v", err)
+	}
+	if client != nil {
+		t.Fatalf("New(nil) = %#v, want nil", client)
+	}
+}
+
+func TestFindLeaderWithoutNodes(t *testing.T) {
+	client := &Client{}
+
+	leader, err := client.FindLeader(context.Background())
+	if err == nil {
+		t.Fatalf("FindLeader() error = nil, want error")
+	}
+	if leader != nil {
+		t.Fatalf("FindLeader() leader = %#v, want nil", leader)
+	}
 }
 
 func TestSetLastNode(t *testing.T) {

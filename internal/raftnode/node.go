@@ -20,6 +20,8 @@ import (
 	"github.com/yedou37/ddb/internal/storage"
 )
 
+const clusterRequestTimeout = 5 * time.Second
+
 type Node struct {
 	raft           *raft.Raft
 	logStore       *raftboltdb.BoltStore
@@ -184,66 +186,20 @@ func (n *Node) Members() ([]model.NodeInfo, error) {
 
 func (n *Node) JoinCluster(ctx context.Context, leaderHTTPAddr, nodeID, raftAddr, httpAddr string) error {
 	n.setLeaderHTTPHint(leaderHTTPAddr)
-
-	body, err := json.Marshal(model.JoinRequest{
+	return n.postClusterRequest(ctx, leaderHTTPAddr, "/join", model.JoinRequest{
 		NodeID:   nodeID,
 		RaftAddr: raftAddr,
 		HTTPAddr: httpAddr,
 	})
-	if err != nil {
-		return err
-	}
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeHTTPAddr(leaderHTTPAddr)+"/join", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Content-Type", "application/json")
-
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode >= http.StatusBadRequest {
-		payload, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("%s", string(payload))
-	}
-
-	return nil
 }
 
 func (n *Node) RejoinCluster(ctx context.Context, leaderHTTPAddr, nodeID, raftAddr, httpAddr string) error {
 	n.setLeaderHTTPHint(leaderHTTPAddr)
-
-	body, err := json.Marshal(model.JoinRequest{
+	return n.postClusterRequest(ctx, leaderHTTPAddr, "/rejoin", model.JoinRequest{
 		NodeID:   nodeID,
 		RaftAddr: raftAddr,
 		HTTPAddr: httpAddr,
 	})
-	if err != nil {
-		return err
-	}
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeHTTPAddr(leaderHTTPAddr)+"/rejoin", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Content-Type", "application/json")
-
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode >= http.StatusBadRequest {
-		payload, _ := io.ReadAll(response.Body)
-		return fmt.Errorf("%s", string(payload))
-	}
-
-	return nil
 }
 
 func (n *Node) Close() error {
@@ -281,6 +237,35 @@ func (n *Node) setLeaderHTTPHint(value string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.leaderHTTPHint = normalizeHTTPAddr(value)
+}
+
+func (n *Node) postClusterRequest(ctx context.Context, leaderHTTPAddr, path string, payload model.JoinRequest) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, clusterRequestTimeout)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(reqCtx, http.MethodPost, normalizeHTTPAddr(leaderHTTPAddr)+path, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= http.StatusBadRequest {
+		payload, _ := io.ReadAll(response.Body)
+		return fmt.Errorf("%s", string(payload))
+	}
+
+	return nil
 }
 
 func normalizeHTTPAddr(addr string) string {

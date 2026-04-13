@@ -45,6 +45,12 @@ func (c *Client) Register(ctx context.Context, node model.NodeInfo) error {
 		return nil
 	}
 
+	if c.cancelRenew != nil {
+		c.cancelRenew()
+		c.cancelRenew = nil
+	}
+	c.leaseID = 0
+
 	lease, err := c.cli.Grant(ctx, 10)
 	if err != nil {
 		return err
@@ -55,8 +61,8 @@ func (c *Client) Register(ctx context.Context, node model.NodeInfo) error {
 		return err
 	}
 
-	if _, err := c.cli.Put(ctx, nodesPrefix+node.ID, string(payload), clientv3.WithLease(lease.ID)); err != nil {
-		return err
+	if _, putErr := c.cli.Put(ctx, nodesPrefix+node.ID, string(payload), clientv3.WithLease(lease.ID)); putErr != nil {
+		return putErr
 	}
 
 	renewCtx, cancel := context.WithCancel(context.Background())
@@ -92,7 +98,12 @@ func (c *Client) Update(ctx context.Context, node model.NodeInfo) error {
 	}
 
 	if _, err := c.cli.Put(ctx, nodesPrefix+node.ID, string(payload), clientv3.WithLease(c.leaseID)); err != nil {
-		return err
+		if c.cancelRenew != nil {
+			c.cancelRenew()
+			c.cancelRenew = nil
+		}
+		c.leaseID = 0
+		return c.Register(ctx, node)
 	}
 
 	c.setLastNode(node)

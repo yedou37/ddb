@@ -1,6 +1,9 @@
 package app
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/yedou37/ddb/internal/config"
@@ -29,5 +32,32 @@ func TestCloseIdempotent(t *testing.T) {
 	}
 	if err := app.Close(); err != nil {
 		t.Fatalf("second Close() error = %v", err)
+	}
+}
+
+func TestRunRejoinWithoutJoinAddress(t *testing.T) {
+	app := &App{
+		cfg: config.ServerConfig{
+			NodeID: "node1",
+			Rejoin: true,
+		},
+		stopCh: make(chan struct{}),
+	}
+
+	err := app.Run()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run() error = %v, want %v", err, context.DeadlineExceeded)
+	}
+}
+
+func TestRunReturnsListenError(t *testing.T) {
+	app := &App{
+		cfg:    config.ServerConfig{NodeID: "node1", Bootstrap: true},
+		server: &http.Server{Addr: "127.0.0.1:-1"},
+		stopCh: make(chan struct{}),
+	}
+
+	if err := app.Run(); err == nil {
+		t.Fatalf("Run() error = nil, want listen error")
 	}
 }
