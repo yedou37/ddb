@@ -58,6 +58,30 @@ Node layout:
 - Go is installed on both machines
 - Docker Desktop is installed on macOS for `etcd`
 
+### Optional Network Preflight Check
+
+This repo includes a cross-platform connectivity checker at `cmd/netcheck`.
+Run it on each host before starting the demo to verify:
+
+- which local IPv4 addresses are active
+- whether the peer IP falls into one of the local subnets
+- whether `ping` works
+- whether required TCP ports are reachable
+
+Example from macOS to Windows:
+
+```bash
+go run ./cmd/netcheck --peer=$WIN_IP --ports=20082,20083,20084,21002,21003,21004
+```
+
+Example from Windows to macOS:
+
+```powershell
+go run .\cmd\netcheck --peer=$env:MAC_IP --ports=2379,20080,20081,21000,21001
+```
+
+If `Summary: FAIL` is shown, fix networking first before continuing with the cluster demo.
+
 ## 0. Build Binaries
 
 ### macOS
