@@ -169,6 +169,91 @@ func TestShardMoveMigratesRowsAndUpdatesControlPlane(t *testing.T) {
 	}
 }
 
+func TestScatterSelectAndEqualityJoinAcrossShards(t *testing.T) {
+	http1, raft1 := reserveAddr(t), reserveAddr(t)
+	http2, raft2 := reserveAddr(t), reserveAddr(t)
+
+	baseDir := t.TempDir()
+	_ = startNode(t, config.ServerConfig{
+		NodeID:    "g1-n1",
+		Role:      shardmeta.RoleShardNode,
+		GroupID:   "g1",
+		HTTPAddr:  http1,
+		RaftAddr:  raft1,
+		RaftDir:   filepath.Join(baseDir, "raft-g1"),
+		DBPath:    filepath.Join(baseDir, "db-g1.db"),
+		Bootstrap: true,
+	})
+	_ = startNode(t, config.ServerConfig{
+		NodeID:    "g2-n1",
+		Role:      shardmeta.RoleShardNode,
+		GroupID:   "g2",
+		HTTPAddr:  http2,
+		RaftAddr:  raft2,
+		RaftDir:   filepath.Join(baseDir, "raft-g2"),
+		DBPath:    filepath.Join(baseDir, "db-g2.db"),
+		Bootstrap: true,
+	})
+	waitForHealth(t, http1)
+	waitForHealth(t, http2)
+	waitForLeader(t, http1)
+	waitForLeader(t, http2)
+
+	controlService, err := controller.NewBootstrapService(
+		shardmeta.DefaultTotalShards,
+		[]shardmeta.GroupID{"g1", "g2"},
+		controller.NewMemoryStore(),
+	)
+	if err != nil {
+		t.Fatalf("NewBootstrapService() error = %v", err)
+	}
+	routeEngine, err := router.New(shardmeta.DefaultTotalShards)
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+	nodeLister := staticNodeLister{nodes: []model.NodeInfo{
+		{ID: "g1-n1", HTTPAddr: http1, Role: string(shardmeta.RoleShardNode), GroupID: "g1", IsLeader: true},
+		{ID: "g2-n1", HTTPAddr: http2, Role: string(shardmeta.RoleShardNode), GroupID: "g2", IsLeader: true},
+	}}
+	coord := coordinator.New(controlService, nodeLister, routeEngine)
+	controlServer := httptest.NewServer(apiserver.NewHandler(controlService, nodeLister, coord, coord))
+	defer controlServer.Close()
+
+	controlExecSQL(t, controlServer.URL, "CREATE TABLE users (id INT PRIMARY KEY, name TEXT)")
+	controlExecSQL(t, controlServer.URL, "CREATE TABLE orders (id INT PRIMARY KEY, user_id INT, item TEXT)")
+
+	keyG1, _, _ := findKeyForGroup(t, routeEngine, controlService.CurrentConfig(), "users", "g1")
+	keyG2, _, _ := findKeyForGroup(t, routeEngine, controlService.CurrentConfig(), "users", "g2")
+	controlExecSQL(t, controlServer.URL, buildInsertStatement("users", []any{keyG1, "alice"}))
+	controlExecSQL(t, controlServer.URL, buildInsertStatement("users", []any{keyG2, "bob"}))
+	controlExecSQL(t, controlServer.URL, buildInsertStatement("orders", []any{100, keyG1, "book"}))
+	controlExecSQL(t, controlServer.URL, buildInsertStatement("orders", []any{200, keyG2, "pen"}))
+
+	selectResult := controlExecSQL(t, controlServer.URL, "SELECT * FROM users")
+	if got, want := len(selectResult.Result.Rows), 2; got != want {
+		t.Fatalf("len(selectResult.Result.Rows) = %d, want %d", got, want)
+	}
+
+	joinResult := controlExecSQL(t, controlServer.URL, "SELECT * FROM users JOIN orders ON users.id = orders.user_id")
+	if got, want := joinResult.Result.Type, "join"; got != want {
+		t.Fatalf("joinResult.Result.Type = %q, want %q", got, want)
+	}
+	if got, want := len(joinResult.Result.Rows), 2; got != want {
+		t.Fatalf("len(joinResult.Result.Rows) = %d, want %d", got, want)
+	}
+	if got, want := joinResult.Result.Columns[0], "users.id"; got != want {
+		t.Fatalf("joinResult.Result.Columns[0] = %q, want %q", got, want)
+	}
+
+	status, response, _ := controlExecSQLWithStatus(t, controlServer.URL, "SELECT * FROM users JOIN orders ON users.id > orders.user_id")
+	if got, want := status, http.StatusBadRequest; got != want {
+		t.Fatalf("non-equality JOIN status = %d, want %d", got, want)
+	}
+	if !strings.Contains(response.Error, "only equality JOIN is supported") {
+		t.Fatalf("non-equality JOIN error = %q, want equality-join hint", response.Error)
+	}
+}
+
 func TestShardMoveReturnsRetryDuringMigration(t *testing.T) {
 	http1, raft1 := reserveAddr(t), reserveAddr(t)
 	http2, raft2 := reserveAddr(t), reserveAddr(t)
@@ -357,7 +442,16 @@ func findAnotherKeyForShard(t *testing.T, routeEngine *router.Router, config sha
 }
 
 func buildInsertStatement(table string, values []any) string {
-	return fmt.Sprintf("INSERT INTO %s VALUES (%v, '%v')", table, values[0], values[1])
+	literals := make([]string, 0, len(values))
+	for _, value := range values {
+		switch typed := value.(type) {
+		case string:
+			literals = append(literals, fmt.Sprintf("'%s'", typed))
+		default:
+			literals = append(literals, fmt.Sprintf("%v", typed))
+		}
+	}
+	return fmt.Sprintf("INSERT INTO %s VALUES (%s)", table, strings.Join(literals, ", "))
 }
 
 func controlExecSQL(t *testing.T, baseURL, statement string) model.SQLResponse {

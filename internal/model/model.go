@@ -26,6 +26,17 @@ type Filter struct {
 	Value  any    `json:"value"`
 }
 
+type ColumnRef struct {
+	Table  string `json:"table"`
+	Column string `json:"column"`
+}
+
+type JoinClause struct {
+	Table string    `json:"table"`
+	Left  ColumnRef `json:"left"`
+	Right ColumnRef `json:"right"`
+}
+
 type StatementType string
 
 const (
@@ -43,6 +54,7 @@ type Statement struct {
 	Definitions []ColumnDef
 	Values      []any
 	Filter      *Filter
+	Join        *JoinClause
 	Raw         string
 }
 

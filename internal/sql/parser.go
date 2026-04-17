@@ -110,6 +110,7 @@ func parseSelect(sql string) (model.Statement, error) {
 
 	table := rest
 	var filter *model.Filter
+	var join *model.JoinClause
 	whereIndex := strings.Index(strings.ToUpper(rest), " WHERE ")
 	if whereIndex >= 0 {
 		table = strings.TrimSpace(rest[:whereIndex])
@@ -119,13 +120,92 @@ func parseSelect(sql string) (model.Statement, error) {
 		}
 		filter = parsedFilter
 	}
+	if strings.Contains(strings.ToUpper(table), " JOIN ") {
+		if filter != nil {
+			return model.Statement{}, fmt.Errorf("JOIN with WHERE is not supported in this MVP")
+		}
+		leftTable, parsedJoin, err := parseJoin(table)
+		if err != nil {
+			return model.Statement{}, err
+		}
+		table = leftTable
+		join = parsedJoin
+	}
 
 	return model.Statement{
 		Type:    model.StatementSelect,
 		Table:   table,
 		Columns: columns,
 		Filter:  filter,
+		Join:    join,
 		Raw:     sql,
+	}, nil
+}
+
+func parseJoin(input string) (string, *model.JoinClause, error) {
+	upper := strings.ToUpper(input)
+	joinIndex := strings.Index(upper, " JOIN ")
+	if joinIndex == -1 {
+		return "", nil, fmt.Errorf("invalid JOIN syntax")
+	}
+	onIndex := strings.Index(upper, " ON ")
+	if onIndex == -1 || onIndex < joinIndex {
+		return "", nil, fmt.Errorf("JOIN requires ON clause")
+	}
+
+	leftTable := strings.TrimSpace(input[:joinIndex])
+	rightTable := strings.TrimSpace(input[joinIndex+len(" JOIN ") : onIndex])
+	if leftTable == "" || rightTable == "" {
+		return "", nil, fmt.Errorf("JOIN requires both table names")
+	}
+
+	condition := strings.TrimSpace(input[onIndex+len(" ON "):])
+	operator, leftExpr, rightExpr, err := parseJoinCondition(condition)
+	if err != nil {
+		return "", nil, err
+	}
+	if operator != "=" {
+		return "", nil, fmt.Errorf("only equality JOIN is supported, got %s", operator)
+	}
+
+	leftRef, err := parseColumnRef(leftExpr)
+	if err != nil {
+		return "", nil, err
+	}
+	rightRef, err := parseColumnRef(rightExpr)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return leftTable, &model.JoinClause{
+		Table: rightTable,
+		Left:  leftRef,
+		Right: rightRef,
+	}, nil
+}
+
+func parseJoinCondition(input string) (string, string, string, error) {
+	for _, operator := range []string{"<=", ">=", "!=", "<>", "=", "<", ">"} {
+		if index := strings.Index(input, operator); index >= 0 {
+			left := strings.TrimSpace(input[:index])
+			right := strings.TrimSpace(input[index+len(operator):])
+			if left == "" || right == "" {
+				return "", "", "", fmt.Errorf("invalid JOIN condition")
+			}
+			return operator, left, right, nil
+		}
+	}
+	return "", "", "", fmt.Errorf("JOIN condition requires a comparison operator")
+}
+
+func parseColumnRef(input string) (model.ColumnRef, error) {
+	parts := strings.SplitN(strings.TrimSpace(input), ".", 2)
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return model.ColumnRef{}, fmt.Errorf("JOIN columns must use table.column syntax")
+	}
+	return model.ColumnRef{
+		Table:  strings.TrimSpace(parts[0]),
+		Column: strings.TrimSpace(parts[1]),
 	}, nil
 }
 

@@ -26,6 +26,7 @@ var (
 	ErrNoShardNodesAvailable  = errors.New("no shard nodes available for group")
 	ErrRouteKeyRequired       = errors.New("single-shard routing requires a primary key value")
 	ErrShardMigrationBlocked  = errors.New("shard migration is in progress")
+	ErrJoinWhereUnsupported   = errors.New("JOIN with WHERE is not supported")
 )
 
 type ShardMigrationError struct {
@@ -50,6 +51,7 @@ type NodeLister interface {
 
 type ShardLockChecker interface {
 	IsShardLocked(shardID shardmeta.ShardID) bool
+	HasLockedShards() bool
 }
 
 type Coordinator struct {
@@ -86,7 +88,9 @@ func (c *Coordinator) ExecuteSQL(ctx context.Context, input string) (model.SQLRe
 			return model.SQLResponse{}, ErrRouteKeyRequired
 		}
 		return c.routeAndExecute(ctx, statement.Table, statement.Values[0], input)
-	case model.StatementSelect, model.StatementDelete:
+	case model.StatementSelect:
+		return c.executeSelect(ctx, statement, input)
+	case model.StatementDelete:
 		if statement.Filter == nil {
 			return model.SQLResponse{}, ErrRouteKeyRequired
 		}
@@ -96,6 +100,24 @@ func (c *Coordinator) ExecuteSQL(ctx context.Context, input string) (model.SQLRe
 	default:
 		return model.SQLResponse{}, fmt.Errorf("unsupported statement type %s", statement.Type)
 	}
+}
+
+func (c *Coordinator) executeSelect(ctx context.Context, statement model.Statement, input string) (model.SQLResponse, error) {
+	if statement.Join != nil {
+		return c.executeJoin(ctx, statement)
+	}
+	if statement.Filter == nil {
+		return c.scatterSelect(ctx, input)
+	}
+
+	schema, err := c.schemaForTable(ctx, statement.Table)
+	if err != nil {
+		return model.SQLResponse{}, err
+	}
+	if strings.EqualFold(statement.Filter.Column, schema.PrimaryKey) {
+		return c.routeAndExecute(ctx, statement.Table, statement.Filter.Value, input)
+	}
+	return c.scatterSelect(ctx, input)
 }
 
 func (c *Coordinator) MigrateShard(ctx context.Context, shardID shardmeta.ShardID, sourceGroup, targetGroup shardmeta.GroupID) error {
@@ -174,6 +196,95 @@ func (c *Coordinator) routeAndExecute(ctx context.Context, table string, primary
 		return model.SQLResponse{}, err
 	}
 	return c.executeRemoteSQL(ctx, node.HTTPAddr, input)
+}
+
+func (c *Coordinator) scatterSelect(ctx context.Context, input string) (model.SQLResponse, error) {
+	if checker, ok := c.configReader.(ShardLockChecker); ok && checker.HasLockedShards() {
+		return model.SQLResponse{}, ShardMigrationError{ShardID: 0}
+	}
+
+	groupIDs := groupIDsFromConfig(c.configReader.CurrentConfig())
+	if len(groupIDs) == 0 {
+		return model.SQLResponse{}, ErrNoShardNodesAvailable
+	}
+
+	var merged model.SQLResponse
+	seenColumns := false
+	rows := make([][]any, 0)
+	for _, groupID := range groupIDs {
+		node, err := c.pickGroupNode(ctx, groupID)
+		if err != nil {
+			return model.SQLResponse{}, err
+		}
+		response, err := c.executeRemoteSQL(ctx, node.HTTPAddr, input)
+		if err != nil {
+			return model.SQLResponse{}, err
+		}
+		if !seenColumns {
+			merged = response
+			seenColumns = true
+		}
+		rows = append(rows, response.Result.Rows...)
+	}
+	if !seenColumns {
+		return model.SQLResponse{Success: true, Result: model.QueryResult{Type: "select", Rows: rows}}, nil
+	}
+	merged.Result.Rows = rows
+	return merged, nil
+}
+
+func (c *Coordinator) executeJoin(ctx context.Context, statement model.Statement) (model.SQLResponse, error) {
+	if statement.Join == nil {
+		return model.SQLResponse{}, errors.New("join clause is required")
+	}
+	if checker, ok := c.configReader.(ShardLockChecker); ok && checker.HasLockedShards() {
+		return model.SQLResponse{}, ShardMigrationError{ShardID: 0}
+	}
+	if len(statement.Columns) != 1 || statement.Columns[0] != "*" {
+		return model.SQLResponse{}, fmt.Errorf("JOIN currently supports only SELECT *")
+	}
+	if statement.Filter != nil {
+		return model.SQLResponse{}, ErrJoinWhereUnsupported
+	}
+
+	leftSchema, err := c.schemaForTable(ctx, statement.Table)
+	if err != nil {
+		return model.SQLResponse{}, err
+	}
+	rightSchema, err := c.schemaForTable(ctx, statement.Join.Table)
+	if err != nil {
+		return model.SQLResponse{}, err
+	}
+
+	leftQuery := fmt.Sprintf("SELECT * FROM %s", statement.Table)
+	rightQuery := fmt.Sprintf("SELECT * FROM %s", statement.Join.Table)
+	leftResponse, err := c.scatterSelect(ctx, leftQuery)
+	if err != nil {
+		return model.SQLResponse{}, err
+	}
+	rightResponse, err := c.scatterSelect(ctx, rightQuery)
+	if err != nil {
+		return model.SQLResponse{}, err
+	}
+
+	leftIndex, err := schemaColumnIndex(leftSchema, statement.Join.Left.Column)
+	if err != nil {
+		return model.SQLResponse{}, err
+	}
+	rightIndex, err := schemaColumnIndex(rightSchema, statement.Join.Right.Column)
+	if err != nil {
+		return model.SQLResponse{}, err
+	}
+
+	joinedRows := joinRows(leftResponse.Result.Rows, rightResponse.Result.Rows, leftIndex, rightIndex)
+	return model.SQLResponse{
+		Success: true,
+		Result: model.QueryResult{
+			Type:    "join",
+			Columns: prefixedColumns(statement.Table, leftSchema.Columns, statement.Join.Table, rightSchema.Columns),
+			Rows:    joinedRows,
+		},
+	}, nil
 }
 
 func (c *Coordinator) broadcastSQL(ctx context.Context, input string) (model.SQLResponse, error) {
@@ -326,6 +437,30 @@ func (c *Coordinator) fetchSchema(ctx context.Context, baseURL, table string) (m
 	return schema, nil
 }
 
+func (c *Coordinator) schemaForTable(ctx context.Context, table string) (model.TableSchema, error) {
+	groupIDs := groupIDsFromConfig(c.configReader.CurrentConfig())
+	if len(groupIDs) == 0 {
+		return model.TableSchema{}, ErrNoShardNodesAvailable
+	}
+	var lastErr error
+	for _, groupID := range groupIDs {
+		node, err := c.pickGroupNode(ctx, groupID)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		schema, err := c.fetchSchema(ctx, node.HTTPAddr, table)
+		if err == nil {
+			return schema, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return model.TableSchema{}, lastErr
+	}
+	return model.TableSchema{}, fmt.Errorf("table %s schema not found", table)
+}
+
 func (c *Coordinator) ensureTable(ctx context.Context, baseURL string, schema model.TableSchema) error {
 	statement := buildCreateTableSQL(schema)
 	response, err := c.postSQL(ctx, baseURL, statement)
@@ -430,4 +565,68 @@ func primaryKeyIndex(schema model.TableSchema) int {
 		}
 	}
 	return -1
+}
+
+func schemaColumnIndex(schema model.TableSchema, column string) (int, error) {
+	for index, item := range schema.Columns {
+		if strings.EqualFold(item.Name, column) {
+			return index, nil
+		}
+	}
+	return -1, fmt.Errorf("unknown join column %s on table %s", column, schema.Name)
+}
+
+func joinRows(leftRows, rightRows [][]any, leftIndex, rightIndex int) [][]any {
+	rightBuckets := make(map[string][][]any)
+	for _, row := range rightRows {
+		if rightIndex >= len(row) {
+			continue
+		}
+		key := normalizeJoinValue(row[rightIndex])
+		rightBuckets[key] = append(rightBuckets[key], row)
+	}
+
+	joined := make([][]any, 0)
+	for _, leftRow := range leftRows {
+		if leftIndex >= len(leftRow) {
+			continue
+		}
+		for _, rightRow := range rightBuckets[normalizeJoinValue(leftRow[leftIndex])] {
+			row := make([]any, 0, len(leftRow)+len(rightRow))
+			row = append(row, leftRow...)
+			row = append(row, rightRow...)
+			joined = append(joined, row)
+		}
+	}
+	return joined
+}
+
+func prefixedColumns(leftTable string, leftColumns []model.ColumnDef, rightTable string, rightColumns []model.ColumnDef) []string {
+	columns := make([]string, 0, len(leftColumns)+len(rightColumns))
+	for _, column := range leftColumns {
+		columns = append(columns, leftTable+"."+column.Name)
+	}
+	for _, column := range rightColumns {
+		columns = append(columns, rightTable+"."+column.Name)
+	}
+	return columns
+}
+
+func normalizeJoinValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(typed), 'f', -1, 32)
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case uint32:
+		return strconv.FormatUint(uint64(typed), 10)
+	default:
+		return fmt.Sprintf("%v", typed)
+	}
 }

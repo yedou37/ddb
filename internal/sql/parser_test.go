@@ -63,6 +63,48 @@ func TestParseSelectWithWhere(t *testing.T) {
 	}
 }
 
+func TestParseSelectJoin(t *testing.T) {
+	statement, err := Parse("SELECT * FROM users JOIN orders ON users.id = orders.user_id")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if statement.Type != model.StatementSelect {
+		t.Fatalf("statement.Type = %q, want %q", statement.Type, model.StatementSelect)
+	}
+	if statement.Join == nil {
+		t.Fatalf("statement.Join = nil, want join clause")
+	}
+	if got, want := statement.Table, "users"; got != want {
+		t.Fatalf("statement.Table = %q, want %q", got, want)
+	}
+	if got, want := statement.Join.Table, "orders"; got != want {
+		t.Fatalf("statement.Join.Table = %q, want %q", got, want)
+	}
+	if got, want := statement.Join.Left.Table, "users"; got != want {
+		t.Fatalf("statement.Join.Left.Table = %q, want %q", got, want)
+	}
+	if got, want := statement.Join.Left.Column, "id"; got != want {
+		t.Fatalf("statement.Join.Left.Column = %q, want %q", got, want)
+	}
+	if got, want := statement.Join.Right.Table, "orders"; got != want {
+		t.Fatalf("statement.Join.Right.Table = %q, want %q", got, want)
+	}
+	if got, want := statement.Join.Right.Column, "user_id"; got != want {
+		t.Fatalf("statement.Join.Right.Column = %q, want %q", got, want)
+	}
+}
+
+func TestParseSelectJoinRejectsNonEquality(t *testing.T) {
+	_, err := Parse("SELECT * FROM users JOIN orders ON users.id > orders.user_id")
+	if err == nil {
+		t.Fatalf("Parse() error = nil, want error")
+	}
+	if got, want := err.Error(), "only equality JOIN is supported, got >"; got != want {
+		t.Fatalf("err.Error() = %q, want %q", got, want)
+	}
+}
+
 func TestParseDeleteRequiresWhere(t *testing.T) {
 	_, err := Parse("DELETE FROM users")
 	if err == nil {

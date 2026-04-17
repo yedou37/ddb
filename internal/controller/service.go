@@ -203,6 +203,12 @@ func (s *Service) IsShardLocked(shardID shardmeta.ShardID) bool {
 	return ok
 }
 
+func (s *Service) HasLockedShards() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.lockedShardIDs) > 0
+}
+
 func (s *Service) WithLockedShards(shardIDs []shardmeta.ShardID, fn func() error) error {
 	if err := s.LockShards(shardIDs...); err != nil {
 		return err
