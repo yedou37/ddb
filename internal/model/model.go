@@ -5,6 +5,8 @@ type NodeInfo struct {
 	RaftAddr string `json:"raft_addr,omitempty"`
 	HTTPAddr string `json:"http_addr"`
 	IsLeader bool   `json:"is_leader"`
+	Role     string `json:"role,omitempty"`
+	GroupID  string `json:"group_id,omitempty"`
 }
 
 type ColumnDef struct {
@@ -91,4 +93,22 @@ type StatusResponse struct {
 	Role     string   `json:"role"`
 	Leader   string   `json:"leader"`
 	Tables   []string `json:"tables"`
+}
+
+type GroupStatus struct {
+	GroupID    string     `json:"group_id"`
+	ShardCount int        `json:"shard_count"`
+	Shards     []uint32   `json:"shards"`
+	Nodes      []NodeInfo `json:"nodes,omitempty"`
+}
+
+type ShardStatus struct {
+	ShardID uint32 `json:"shard_id"`
+	GroupID string `json:"group_id"`
+}
+
+type ShardsResponse struct {
+	Version     uint64        `json:"version"`
+	TotalShards int           `json:"total_shards"`
+	Assignments []ShardStatus `json:"assignments"`
 }

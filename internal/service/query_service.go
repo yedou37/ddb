@@ -94,6 +94,10 @@ func (s *QueryService) Status(ctx context.Context) (model.StatusResponse, error)
 	}, nil
 }
 
+func (s *QueryService) Schema(_ context.Context, table string) (model.TableSchema, error) {
+	return s.store.Schema(table)
+}
+
 func (s *QueryService) Members(ctx context.Context) ([]model.ClusterMember, error) {
 	if s.raftNode == nil {
 		return []model.ClusterMember{{

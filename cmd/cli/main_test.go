@@ -65,6 +65,16 @@ func TestReadURLAndNormalizeURL(t *testing.T) {
 	}
 }
 
+func TestControlURLUsesNodeURL(t *testing.T) {
+	url, err := controlURL(context.Background(), config.CLIConfig{NodeURL: ":18080"}, nil)
+	if err != nil {
+		t.Fatalf("controlURL() error = %v", err)
+	}
+	if got, want := url, "http://127.0.0.1:18080"; got != want {
+		t.Fatalf("controlURL() = %q, want %q", got, want)
+	}
+}
+
 func TestIsWrite(t *testing.T) {
 	if !isWrite(model.StatementInsert) {
 		t.Fatalf("isWrite(insert) = false, want true")
@@ -85,8 +95,8 @@ func TestPrintJSON(t *testing.T) {
 		os.Stdout = oldStdout
 	}()
 
-	if err := printJSON(map[string]string{"status": "ok"}); err != nil {
-		t.Fatalf("printJSON() error = %v", err)
+	if printErr := printJSON(map[string]string{"status": "ok"}); printErr != nil {
+		t.Fatalf("printJSON() error = %v", printErr)
 	}
 	_ = writer.Close()
 
@@ -133,6 +143,62 @@ func TestRunClusterMembers(t *testing.T) {
 	data, _ := io.ReadAll(reader)
 	if !strings.Contains(string(data), "\"id\": \"node1\"") {
 		t.Fatalf("runCluster() output = %q, want node1", string(data))
+	}
+}
+
+func TestRunControlGroupsAndMoveShard(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/groups":
+			writeJSON(t, w, []model.GroupStatus{
+				{GroupID: "g1", ShardCount: 4, Shards: []uint32{0, 1, 2, 3}},
+				{GroupID: "g2", ShardCount: 4, Shards: []uint32{4, 5, 6, 7}},
+			})
+		case "/move-shard":
+			if r.Method != http.MethodPost {
+				t.Fatalf("r.Method = %q, want POST", r.Method)
+			}
+			buf := new(bytes.Buffer)
+			_, _ = io.Copy(buf, r.Body)
+			if !strings.Contains(buf.String(), `"shard_id":6`) || !strings.Contains(buf.String(), `"group_id":"g3"`) {
+				t.Fatalf("move-shard body = %q, want shard_id/group_id", buf.String())
+			}
+			writeJSON(t, w, model.ShardsResponse{
+				Version:     2,
+				TotalShards: 8,
+				Assignments: []model.ShardStatus{{ShardID: 6, GroupID: "g3"}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	if groupsErr := runControl(context.Background(), config.CLIConfig{NodeURL: server.URL}, nil, []string{"groups"}); groupsErr != nil {
+		t.Fatalf("runControl(groups) error = %v", groupsErr)
+	}
+	if moveErr := runControl(context.Background(), config.CLIConfig{NodeURL: server.URL}, nil, []string{"move-shard", "6", "g3"}); moveErr != nil {
+		t.Fatalf("runControl(move-shard) error = %v", moveErr)
+	}
+	_ = writer.Close()
+
+	data, _ := io.ReadAll(reader)
+	output := string(data)
+	if !strings.Contains(output, `"group_id": "g1"`) {
+		t.Fatalf("runControl(groups) output = %q, want g1", output)
+	}
+	if !strings.Contains(output, `"version": 2`) {
+		t.Fatalf("runControl(move-shard) output = %q, want version 2", output)
 	}
 }
 

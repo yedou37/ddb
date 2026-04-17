@@ -124,6 +124,10 @@ func (s *Store) ListTables() ([]string, error) {
 	return tables, nil
 }
 
+func (s *Store) Schema(table string) (model.TableSchema, error) {
+	return s.loadSchema(table)
+}
+
 func (s *Store) Insert(table string, values []any) error {
 	schema, err := s.loadSchema(table)
 	if err != nil {

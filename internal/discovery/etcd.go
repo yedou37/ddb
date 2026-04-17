@@ -11,10 +11,14 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/yedou37/ddb/internal/model"
+	"github.com/yedou37/ddb/internal/shardmeta"
 )
 
 const nodesPrefix = "/ddb/nodes/"
 const removedPrefix = "/ddb/removed/"
+const controllerConfigKey = "/ddb/controller/config"
+
+var ErrControllerConfigNotFound = errors.New("controller config not found")
 
 type Client struct {
 	cli         *clientv3.Client
@@ -156,6 +160,39 @@ func (c *Client) FindLeader(ctx context.Context) (*model.NodeInfo, error) {
 	}
 
 	return nil, errors.New("leader not found")
+}
+
+func (c *Client) LoadControllerConfig(ctx context.Context) (shardmeta.ClusterConfig, error) {
+	if c == nil || c.cli == nil {
+		return shardmeta.ClusterConfig{}, errors.New("etcd client is not configured")
+	}
+
+	response, err := c.cli.Get(ctx, controllerConfigKey)
+	if err != nil {
+		return shardmeta.ClusterConfig{}, err
+	}
+	if len(response.Kvs) == 0 {
+		return shardmeta.ClusterConfig{}, ErrControllerConfigNotFound
+	}
+
+	var config shardmeta.ClusterConfig
+	if err := json.Unmarshal(response.Kvs[0].Value, &config); err != nil {
+		return shardmeta.ClusterConfig{}, err
+	}
+	return config, nil
+}
+
+func (c *Client) SaveControllerConfig(ctx context.Context, config shardmeta.ClusterConfig) error {
+	if c == nil || c.cli == nil {
+		return nil
+	}
+
+	data, err := json.Marshal(config)
+	if err != nil {
+		return err
+	}
+	_, err = c.cli.Put(ctx, controllerConfigKey, string(data))
+	return err
 }
 
 func (c *Client) MarkRemoved(ctx context.Context, nodeID string) error {

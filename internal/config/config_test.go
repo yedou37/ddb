@@ -17,6 +17,9 @@ func TestParseServerConfigFromEnv(t *testing.T) {
 	t.Setenv("JOIN_ADDR", "127.0.0.1:8080")
 	t.Setenv("DB_PATH", "/tmp/data.db")
 	t.Setenv("ETCD_ADDR", "127.0.0.1:2379,127.0.0.1:2380")
+	t.Setenv("ROLE", "controller")
+	t.Setenv("GROUP_ID", "group-1")
+	t.Setenv("CONTROLLER_ADDRS", "127.0.0.1:18080,127.0.0.1:18081")
 
 	cfg := ParseServerConfig()
 
@@ -31,6 +34,15 @@ func TestParseServerConfigFromEnv(t *testing.T) {
 	}
 	if got, want := len(cfg.ETCDEndpoints), 2; got != want {
 		t.Fatalf("len(cfg.ETCDEndpoints) = %d, want %d", got, want)
+	}
+	if got, want := string(cfg.Role), "controller"; got != want {
+		t.Fatalf("cfg.Role = %q, want %q", got, want)
+	}
+	if got, want := cfg.GroupID, "group-1"; got != want {
+		t.Fatalf("cfg.GroupID = %q, want %q", got, want)
+	}
+	if got, want := len(cfg.ControllerAddrs), 2; got != want {
+		t.Fatalf("len(cfg.ControllerAddrs) = %d, want %d", got, want)
 	}
 }
 

@@ -4,18 +4,23 @@ import (
 	"flag"
 	"os"
 	"strings"
+
+	"github.com/yedou37/ddb/internal/shardmeta"
 )
 
 type ServerConfig struct {
-	NodeID        string
-	HTTPAddr      string
-	RaftAddr      string
-	RaftDir       string
-	Bootstrap     bool
-	Rejoin        bool
-	JoinAddr      string
-	DBPath        string
-	ETCDEndpoints []string
+	NodeID          string
+	HTTPAddr        string
+	RaftAddr        string
+	RaftDir         string
+	Bootstrap       bool
+	Rejoin          bool
+	JoinAddr        string
+	DBPath          string
+	ETCDEndpoints   []string
+	Role            shardmeta.NodeRole
+	GroupID         string
+	ControllerAddrs []string
 }
 
 type CLIConfig struct {
@@ -33,6 +38,9 @@ func ParseServerConfig() ServerConfig {
 	joinAddr := flag.String("join", envOrDefault("JOIN_ADDR", ""), "")
 	dbPath := flag.String("db-path", envOrDefault("DB_PATH", "data.db"), "")
 	etcd := flag.String("etcd", envOrDefault("ETCD_ADDR", ""), "")
+	role := flag.String("role", envOrDefault("ROLE", string(shardmeta.RoleShardNode)), "")
+	groupID := flag.String("group-id", envOrDefault("GROUP_ID", ""), "")
+	controllerAddrs := flag.String("controller-addrs", envOrDefault("CONTROLLER_ADDRS", ""), "")
 	flag.Parse()
 
 	// Rejoin is a recovery path and must not bootstrap a brand-new cluster.
@@ -41,15 +49,18 @@ func ParseServerConfig() ServerConfig {
 	}
 
 	return ServerConfig{
-		NodeID:        *nodeID,
-		HTTPAddr:      *httpAddr,
-		RaftAddr:      *raftAddr,
-		RaftDir:       *raftDir,
-		Bootstrap:     *bootstrap,
-		Rejoin:        *rejoin,
-		JoinAddr:      *joinAddr,
-		DBPath:        *dbPath,
-		ETCDEndpoints: splitCSV(*etcd),
+		NodeID:          *nodeID,
+		HTTPAddr:        *httpAddr,
+		RaftAddr:        *raftAddr,
+		RaftDir:         *raftDir,
+		Bootstrap:       *bootstrap,
+		Rejoin:          *rejoin,
+		JoinAddr:        *joinAddr,
+		DBPath:          *dbPath,
+		ETCDEndpoints:   splitCSV(*etcd),
+		Role:            shardmeta.NodeRole(strings.TrimSpace(*role)).OrDefault(),
+		GroupID:         strings.TrimSpace(*groupID),
+		ControllerAddrs: splitCSV(*controllerAddrs),
 	}
 }
 

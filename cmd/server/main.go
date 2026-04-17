@@ -32,7 +32,16 @@ func run() error {
 		_ = application.Close()
 	}()
 
-	log.Printf("node=%s http=%s raft=%s bootstrap=%t join=%s", cfg.NodeID, cfg.HTTPAddr, cfg.RaftAddr, cfg.Bootstrap, cfg.JoinAddr)
+	log.Printf(
+		"node=%s role=%s group=%s http=%s raft=%s bootstrap=%t join=%s",
+		cfg.NodeID,
+		cfg.Role,
+		cfg.GroupID,
+		cfg.HTTPAddr,
+		cfg.RaftAddr,
+		cfg.Bootstrap,
+		cfg.JoinAddr,
+	)
 
 	err = application.Run()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {

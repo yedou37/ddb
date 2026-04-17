@@ -71,6 +71,19 @@ func NewHandler(queryService *service.QueryService) http.Handler {
 		}
 		writeJSON(w, http.StatusOK, model.SQLResponse{Success: true, Result: result})
 	})
+	mux.HandleFunc("/schema", func(w http.ResponseWriter, r *http.Request) {
+		table := r.URL.Query().Get("table")
+		if table == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "table is required"})
+			return
+		}
+		result, err := queryService.Schema(r.Context(), table)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
 	mux.HandleFunc("/join", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
