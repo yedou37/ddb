@@ -11,11 +11,25 @@ import (
 )
 
 var ErrShardNotFound = errors.New("shard not found")
+var ErrShardMigrationInProgress = errors.New("shard migration in progress")
+
+type ShardMigrationError struct {
+	ShardID shardmeta.ShardID
+}
+
+func (e ShardMigrationError) Error() string {
+	return fmt.Sprintf("shard %d is migrating, retry later", e.ShardID)
+}
+
+func (e ShardMigrationError) Unwrap() error {
+	return ErrShardMigrationInProgress
+}
 
 type Service struct {
-	mu     sync.RWMutex
-	store  ConfigStore
-	config shardmeta.ClusterConfig
+	mu             sync.RWMutex
+	store          ConfigStore
+	config         shardmeta.ClusterConfig
+	lockedShardIDs map[shardmeta.ShardID]struct{}
 }
 
 func NewBootstrapService(totalShards int, groupIDs []shardmeta.GroupID, store ConfigStore) (*Service, error) {
@@ -35,7 +49,7 @@ func NewBootstrapService(totalShards int, groupIDs []shardmeta.GroupID, store Co
 		if validateErr := config.Validate(); validateErr != nil {
 			return nil, validateErr
 		}
-		return &Service{store: store, config: config}, nil
+		return &Service{store: store, config: config, lockedShardIDs: make(map[shardmeta.ShardID]struct{})}, nil
 	} else if !errors.Is(err, ErrConfigNotFound) {
 		return nil, err
 	}
@@ -49,14 +63,14 @@ func NewBootstrapService(totalShards int, groupIDs []shardmeta.GroupID, store Co
 	if err := store.Save(ctx, config); err != nil {
 		return nil, err
 	}
-	return &Service{store: store, config: config}, nil
+	return &Service{store: store, config: config, lockedShardIDs: make(map[shardmeta.ShardID]struct{})}, nil
 }
 
 func NewService(config shardmeta.ClusterConfig) (*Service, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return &Service{store: NewMemoryStore(), config: config}, nil
+	return &Service{store: NewMemoryStore(), config: config, lockedShardIDs: make(map[shardmeta.ShardID]struct{})}, nil
 }
 
 func (s *Service) CurrentConfig() shardmeta.ClusterConfig {
@@ -160,6 +174,43 @@ func (s *Service) UpdateConfig(config shardmeta.ClusterConfig) (shardmeta.Cluste
 	return s.config, nil
 }
 
+func (s *Service) LockShards(shardIDs ...shardmeta.ShardID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, shardID := range uniqueShardIDs(shardIDs) {
+		if _, ok := s.lockedShardIDs[shardID]; ok {
+			return ShardMigrationError{ShardID: shardID}
+		}
+	}
+	for _, shardID := range uniqueShardIDs(shardIDs) {
+		s.lockedShardIDs[shardID] = struct{}{}
+	}
+	return nil
+}
+
+func (s *Service) UnlockShards(shardIDs ...shardmeta.ShardID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, shardID := range uniqueShardIDs(shardIDs) {
+		delete(s.lockedShardIDs, shardID)
+	}
+}
+
+func (s *Service) IsShardLocked(shardID shardmeta.ShardID) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.lockedShardIDs[shardID]
+	return ok
+}
+
+func (s *Service) WithLockedShards(shardIDs []shardmeta.ShardID, fn func() error) error {
+	if err := s.LockShards(shardIDs...); err != nil {
+		return err
+	}
+	defer s.UnlockShards(shardIDs...)
+	return fn()
+}
+
 func (s *Service) refreshLocked(ctx context.Context) error {
 	if s.store == nil {
 		return nil
@@ -176,4 +227,20 @@ func (s *Service) refreshLocked(ctx context.Context) error {
 	}
 	s.config = config
 	return nil
+}
+
+func uniqueShardIDs(shardIDs []shardmeta.ShardID) []shardmeta.ShardID {
+	if len(shardIDs) < 2 {
+		return shardIDs
+	}
+	seen := make(map[shardmeta.ShardID]struct{}, len(shardIDs))
+	unique := make([]shardmeta.ShardID, 0, len(shardIDs))
+	for _, shardID := range shardIDs {
+		if _, ok := seen[shardID]; ok {
+			continue
+		}
+		seen[shardID] = struct{}{}
+		unique = append(unique, shardID)
+	}
+	return unique
 }

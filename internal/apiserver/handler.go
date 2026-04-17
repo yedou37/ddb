@@ -57,7 +57,7 @@ func NewHandler(service *controller.Service, nodeLister NodeLister, executor SQL
 
 		response, err := executor.ExecuteSQL(r.Context(), request.SQL)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, model.SQLResponse{Success: false, Error: err.Error()})
+			writeSQLExecutorError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, response)
@@ -123,21 +123,31 @@ func NewHandler(service *controller.Service, nodeLister NodeLister, executor SQL
 			writeControllerError(w, controller.ErrShardNotFound)
 			return
 		}
-		if migrator != nil && sourceGroup != request.GroupID {
-			if err := migrator.MigrateShard(r.Context(), request.ShardID, sourceGroup, request.GroupID); err != nil {
-				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+
+		var config shardmeta.ClusterConfig
+		err := service.WithLockedShards([]shardmeta.ShardID{request.ShardID}, func() error {
+			if migrator != nil && sourceGroup != request.GroupID {
+				if err := migrator.MigrateShard(r.Context(), request.ShardID, sourceGroup, request.GroupID); err != nil {
+					return err
+				}
+			}
+			nextConfig, err := service.PreviewMoveShard(request.ShardID, request.GroupID)
+			if err != nil {
+				return err
+			}
+			config, err = service.UpdateConfig(nextConfig)
+			return err
+		})
+		if err != nil {
+			if errors.Is(err, controller.ErrShardMigrationInProgress) {
+				writeControllerError(w, err)
 				return
 			}
-		}
-
-		nextConfig, err := service.PreviewMoveShard(request.ShardID, request.GroupID)
-		if err != nil {
-			writeControllerError(w, err)
-			return
-		}
-		config, err := service.UpdateConfig(nextConfig)
-		if err != nil {
-			writeControllerError(w, err)
+			if errors.Is(err, controller.ErrShardNotFound) {
+				writeControllerError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, config)
@@ -164,17 +174,26 @@ func NewHandler(service *controller.Service, nodeLister NodeLister, executor SQL
 			writeControllerError(w, err)
 			return
 		}
-		if migrator != nil {
-			for _, movement := range diffAssignments(current, nextConfig) {
-				if err := migrator.MigrateShard(r.Context(), movement.ShardID, movement.FromGroup, movement.ToGroup); err != nil {
-					writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-					return
+		movements := diffAssignments(current, nextConfig)
+		var config shardmeta.ClusterConfig
+		err = service.WithLockedShards(movementShardIDs(movements), func() error {
+			if migrator != nil {
+				for _, movement := range movements {
+					if migrateErr := migrator.MigrateShard(r.Context(), movement.ShardID, movement.FromGroup, movement.ToGroup); migrateErr != nil {
+						return migrateErr
+					}
 				}
 			}
-		}
-		config, err := service.UpdateConfig(nextConfig)
+			var updateErr error
+			config, updateErr = service.UpdateConfig(nextConfig)
+			return updateErr
+		})
 		if err != nil {
-			writeControllerError(w, err)
+			if errors.Is(err, controller.ErrShardMigrationInProgress) {
+				writeControllerError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, config)
@@ -187,7 +206,20 @@ func writeControllerError(w http.ResponseWriter, err error) {
 	if errors.Is(err, controller.ErrShardNotFound) {
 		status = http.StatusNotFound
 	}
+	if errors.Is(err, controller.ErrShardMigrationInProgress) {
+		w.Header().Set("Retry-After", "1")
+		status = http.StatusServiceUnavailable
+	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func writeSQLExecutorError(w http.ResponseWriter, err error) {
+	status := http.StatusBadRequest
+	if errors.Is(err, coordinator.ErrShardMigrationBlocked) {
+		w.Header().Set("Retry-After", "1")
+		status = http.StatusServiceUnavailable
+	}
+	writeJSON(w, status, model.SQLResponse{Success: false, Error: err.Error()})
 }
 
 func buildShardsResponse(config shardmeta.ClusterConfig) model.ShardsResponse {
@@ -292,6 +324,14 @@ func diffAssignments(current, next shardmeta.ClusterConfig) []shardMovement {
 		})
 	}
 	return movements
+}
+
+func movementShardIDs(movements []shardMovement) []shardmeta.ShardID {
+	shardIDs := make([]shardmeta.ShardID, 0, len(movements))
+	for _, movement := range movements {
+		shardIDs = append(shardIDs, movement.ShardID)
+	}
+	return shardIDs
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

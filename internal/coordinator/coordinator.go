@@ -25,7 +25,20 @@ var (
 	ErrCoordinatorUnavailable = errors.New("coordinator is not configured")
 	ErrNoShardNodesAvailable  = errors.New("no shard nodes available for group")
 	ErrRouteKeyRequired       = errors.New("single-shard routing requires a primary key value")
+	ErrShardMigrationBlocked  = errors.New("shard migration is in progress")
 )
+
+type ShardMigrationError struct {
+	ShardID shardmeta.ShardID
+}
+
+func (e ShardMigrationError) Error() string {
+	return fmt.Sprintf("shard %d is migrating, retry later", e.ShardID)
+}
+
+func (e ShardMigrationError) Unwrap() error {
+	return ErrShardMigrationBlocked
+}
 
 type ConfigReader interface {
 	CurrentConfig() shardmeta.ClusterConfig
@@ -33,6 +46,10 @@ type ConfigReader interface {
 
 type NodeLister interface {
 	ListNodes(ctx context.Context) ([]model.NodeInfo, error)
+}
+
+type ShardLockChecker interface {
+	IsShardLocked(shardID shardmeta.ShardID) bool
 }
 
 type Coordinator struct {
@@ -148,6 +165,9 @@ func (c *Coordinator) routeAndExecute(ctx context.Context, table string, primary
 	result, err := c.router.Route(table, primaryKey, config)
 	if err != nil {
 		return model.SQLResponse{}, err
+	}
+	if checker, ok := c.configReader.(ShardLockChecker); ok && checker.IsShardLocked(result.ShardID) {
+		return model.SQLResponse{}, ShardMigrationError{ShardID: result.ShardID}
 	}
 	node, err := c.pickGroupNode(ctx, result.GroupID)
 	if err != nil {

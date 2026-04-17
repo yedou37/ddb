@@ -80,3 +80,23 @@ func TestSharedStorePropagatesConfigAcrossServices(t *testing.T) {
 		t.Fatalf("service2 shard 6 group = %q, want %q", got, want)
 	}
 }
+
+func TestShardLocks(t *testing.T) {
+	service := newTestService(t)
+
+	if err := service.LockShards(6); err != nil {
+		t.Fatalf("LockShards() error = %v", err)
+	}
+	if !service.IsShardLocked(6) {
+		t.Fatalf("IsShardLocked(6) = false, want true")
+	}
+
+	if err := service.LockShards(6); err == nil {
+		t.Fatalf("LockShards(6) error = nil, want migration-in-progress error")
+	}
+
+	service.UnlockShards(6)
+	if service.IsShardLocked(6) {
+		t.Fatalf("IsShardLocked(6) = true, want false after unlock")
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/yedou37/ddb/internal/controller"
+	"github.com/yedou37/ddb/internal/coordinator"
 	"github.com/yedou37/ddb/internal/model"
 	"github.com/yedou37/ddb/internal/shardmeta"
 )
@@ -30,7 +31,8 @@ type fakeMigrator struct {
 		fromGroup shardmeta.GroupID
 		toGroup   shardmeta.GroupID
 	}
-	err error
+	err   error
+	check func(shardmeta.ShardID)
 }
 
 func (f *fakeSQLExecutor) ExecuteSQL(_ context.Context, input string) (model.SQLResponse, error) {
@@ -45,6 +47,9 @@ func (f *fakeNodeLister) ListNodes(context.Context) ([]model.NodeInfo, error) {
 func (f *fakeMigrator) MigrateShard(_ context.Context, shardID shardmeta.ShardID, sourceGroup, targetGroup shardmeta.GroupID) error {
 	if f.err != nil {
 		return f.err
+	}
+	if f.check != nil {
+		f.check(shardID)
 	}
 	f.migrations = append(f.migrations, struct {
 		shardID   shardmeta.ShardID
@@ -67,7 +72,11 @@ func TestNewHandlerHealthConfigAndControlOperations(t *testing.T) {
 		{ID: "g1-n1", Role: "shard", GroupID: "g1", HTTPAddr: "http://g1"},
 		{ID: "g2-n1", Role: "shard", GroupID: "g2", HTTPAddr: "http://g2"},
 	}}
-	migrator := &fakeMigrator{}
+	migrator := &fakeMigrator{check: func(shardID shardmeta.ShardID) {
+		if !service.IsShardLocked(shardID) {
+			t.Fatalf("service.IsShardLocked(%d) = false, want true during migration", shardID)
+		}
+	}}
 	handler := NewHandler(service, nodeLister, executor, migrator)
 
 	health := httptest.NewRecorder()
@@ -167,6 +176,9 @@ func TestNewHandlerHealthConfigAndControlOperations(t *testing.T) {
 	if got := len(migrator.migrations); got < 2 {
 		t.Fatalf("len(migrator.migrations) = %d, want at least 2 after rebalance", got)
 	}
+	if service.IsShardLocked(6) {
+		t.Fatalf("service.IsShardLocked(6) = true, want false after move-shard completes")
+	}
 }
 
 func TestNewHandlerControlErrors(t *testing.T) {
@@ -224,5 +236,29 @@ func TestNewHandlerSQL(t *testing.T) {
 	}
 	if got, want := executor.lastSQL, "SELECT * FROM users WHERE id = 1"; got != want {
 		t.Fatalf("executor.lastSQL = %q, want %q", got, want)
+	}
+}
+
+func TestNewHandlerSQLReturnsRetryDuringShardMigration(t *testing.T) {
+	service, err := controller.NewService(shardmeta.NewClusterConfig(shardmeta.DefaultTotalShards, map[shardmeta.ShardID]shardmeta.GroupID{
+		0: "g1", 1: "g1", 2: "g1", 3: "g1",
+		4: "g2", 5: "g2", 6: "g2", 7: "g2",
+	}))
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	executor := &fakeSQLExecutor{
+		err: coordinator.ShardMigrationError{ShardID: 3},
+	}
+	handler := NewHandler(service, nil, executor, nil)
+
+	body := bytes.NewBufferString(`{"sql":"SELECT * FROM users WHERE id = 1"}`)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/sql", body))
+	if got, want := rec.Code, http.StatusServiceUnavailable; got != want {
+		t.Fatalf("/sql code = %d, want %d", got, want)
+	}
+	if got, want := rec.Header().Get("Retry-After"), "1"; got != want {
+		t.Fatalf("Retry-After = %q, want %q", got, want)
 	}
 }

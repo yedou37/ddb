@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -119,5 +120,51 @@ func TestCoordinatorBroadcastsCreateTable(t *testing.T) {
 	}
 	if hitG1 != 1 || hitG2 != 1 {
 		t.Fatalf("hits = g1:%d g2:%d, want g1:1 g2:1", hitG1, hitG2)
+	}
+}
+
+func TestCoordinatorRejectsLockedShardRequests(t *testing.T) {
+	routeEngine, err := router.New(shardmeta.DefaultTotalShards)
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	config, err := controller.NewService(shardmeta.NewClusterConfig(shardmeta.DefaultTotalShards, map[shardmeta.ShardID]shardmeta.GroupID{
+		0: "g1", 1: "g1", 2: "g1", 3: "g1",
+		4: "g2", 5: "g2", 6: "g2", 7: "g2",
+	}))
+	if err != nil {
+		t.Fatalf("controller.NewService() error = %v", err)
+	}
+
+	routeResult, err := routeEngine.Route("users", 42, config.CurrentConfig())
+	if err != nil {
+		t.Fatalf("routeEngine.Route() error = %v", err)
+	}
+	if lockErr := config.LockShards(routeResult.ShardID); lockErr != nil {
+		t.Fatalf("config.LockShards() error = %v", lockErr)
+	}
+
+	var hits int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_ = json.NewEncoder(w).Encode(model.SQLResponse{Success: true, Result: model.QueryResult{Type: "select"}})
+	}))
+	defer server.Close()
+
+	instance := New(config, stubNodeLister{nodes: []model.NodeInfo{
+		{ID: "g1-n1", HTTPAddr: server.URL, Role: string(shardmeta.RoleShardNode), GroupID: "g1", IsLeader: true},
+		{ID: "g2-n1", HTTPAddr: server.URL, Role: string(shardmeta.RoleShardNode), GroupID: "g2", IsLeader: true},
+	}}, routeEngine)
+
+	_, err = instance.ExecuteSQL(context.Background(), "SELECT * FROM users WHERE id = 42")
+	if err == nil {
+		t.Fatalf("ExecuteSQL() error = nil, want migration-in-progress error")
+	}
+	if !errors.Is(err, ErrShardMigrationBlocked) {
+		t.Fatalf("ExecuteSQL() error = %v, want shard migration blocked", err)
+	}
+	if hits != 0 {
+		t.Fatalf("backend hits = %d, want 0 while shard is locked", hits)
 	}
 }
