@@ -17,19 +17,27 @@ PRIMARY_KEY_B="${DDB_PRIMARY_KEY_B:-2}"
 KEEP_ETCD_MODE="${DDB_KEEP_ETCD:-auto}"
 REUSE_EXISTING_ETCD=false
 ETCD_BIN="${DDB_ETCD_BIN:-}"
+SEED_ROW_COUNT="${DDB_SEED_ROW_COUNT:-40}"
 
 usage() {
   cat <<'EOF'
 usage:
-  ./scripts/demo-single-host-sharddb.sh [verify-only|cleanup-only]
+  ./scripts/demo-single-host-sharddb.sh [start-only|verify-only|seed-only|cleanup-only]
 
 description:
   clean up the local demo environment, start etcd, open each shard node and the
-  apiserver in a separate Terminal.app shell, then run verification commands.
+  apiserver in terminal tabs when possible, then run verification commands.
+
+modes:
+  start-only   clean up and start the environment, but skip verification
+  verify-only  only run verification against an already running environment
+  seed-only    create demo tables and insert enough test data into a running environment
+  cleanup-only only clean up the local demo environment
 
 notes:
   - designed for macOS with iTerm2 or Terminal.app
-  - shard nodes always start in separate Terminal shells
+  - shard nodes prefer opening in new tabs of the current terminal window
+  - if no terminal window is available, the script falls back to creating one
   - etcd uses Docker if available, otherwise falls back to local `etcd`
   - set DDB_TERM_APP=iterm2 to force iTerm2
   - set DDB_TERM_APP=terminal to force Terminal.app
@@ -44,6 +52,16 @@ fi
 VERIFY_ONLY=false
 if [[ "${1:-}" == "verify-only" ]]; then
   VERIFY_ONLY=true
+fi
+
+START_ONLY=false
+if [[ "${1:-}" == "start-only" ]]; then
+  START_ONLY=true
+fi
+
+SEED_ONLY=false
+if [[ "${1:-}" == "seed-only" ]]; then
+  SEED_ONLY=true
 fi
 
 CLEANUP_ONLY=false
@@ -159,6 +177,19 @@ sql_request() {
   local statement="$1"
   local output="$2"
   http_post_json "$API_URL/sql" "$(sql_payload "$statement")" "$output"
+}
+
+seed_users_rows() {
+  python3 - "$SEED_ROW_COUNT" <<'PY'
+import sys
+
+count = int(sys.argv[1])
+if count < 1:
+    count = 1
+
+for i in range(1, count + 1):
+    print(f"{i}|user-{i:03d}")
+PY
 }
 
 describe_port_usage() {
@@ -474,7 +505,13 @@ open_with_terminal_app() {
       if ! osascript <<EOF > /dev/null 2>"$error_log"
 tell application "$TERMINAL_APP"
   activate
-  create window with default profile command "$escaped"
+  if (count of windows) = 0 then
+    create window with default profile command "$escaped"
+  else
+    tell current window
+      create tab with default profile command "$escaped"
+    end tell
+  end if
 end tell
 EOF
       then
@@ -486,7 +523,11 @@ EOF
       if ! osascript <<EOF > /dev/null 2>"$error_log"
 tell application "Terminal"
   activate
-  do script "$escaped"
+  if (count of windows) = 0 then
+    do script "$escaped"
+  else
+    do script "$escaped" in front window
+  end if
 end tell
 EOF
       then
@@ -637,6 +678,59 @@ print(f"[PASS] rebalance moved shards into g3: {moved_to_g3}")
 PY
 }
 
+seed_demo_data() {
+  local create_json="$TMP_DIR/seed-create-users.json"
+  local select_json="$TMP_DIR/seed-select-users.json"
+  local insert_json
+  local delete_json
+  local inserted=0
+
+  log "wait for apiserver before seeding"
+  wait_for_http "$API_URL/health"
+
+  log "ensure users table exists"
+  if ! sql_request "CREATE TABLE users (id INT PRIMARY KEY, name TEXT)" "$create_json"; then
+    warn "CREATE TABLE users returned non-zero; checking whether table already exists"
+    curl -fsS "$API_URL/tables" >"$TMP_DIR/seed-tables.json" 2>/dev/null || true
+  fi
+
+  if [[ -f "$create_json" ]]; then
+    cat "$create_json"
+  fi
+
+  log "clear existing users demo rows in range 1..$SEED_ROW_COUNT"
+  while IFS='|' read -r row_id row_name; do
+    [[ -z "$row_id" ]] && continue
+    delete_json="$TMP_DIR/seed-delete-${row_id}.json"
+    if ! sql_request "DELETE FROM users WHERE id = ${row_id}" "$delete_json"; then
+      true
+    fi
+  done < <(seed_users_rows)
+
+  log "insert $SEED_ROW_COUNT demo rows into users"
+  while IFS='|' read -r row_id row_name; do
+    [[ -z "$row_id" ]] && continue
+    insert_json="$TMP_DIR/seed-insert-${row_id}.json"
+    sql_request "INSERT INTO users VALUES (${row_id}, '${row_name}')" "$insert_json"
+    assert_json "$insert_json" 'data["success"] is True' "insert succeeds for id ${row_id}"
+    inserted=$((inserted + 1))
+  done < <(seed_users_rows)
+
+  log "verify a few seeded rows"
+  sql_request "SELECT * FROM users WHERE id = 1" "$select_json"
+  cat "$select_json"
+  verify_select_result "$select_json" "1" "user-001"
+
+  cat <<EOF
+
+== seeded ==
+Seeded table: users
+Inserted rows: $inserted
+You can now open:
+  http://127.0.0.1:18100/dashboard/
+EOF
+}
+
 start_shard_nodes() {
   log "start shard nodes in separate terminal shells"
 
@@ -759,6 +853,11 @@ EOF
 
 main() {
   cd "$ROOT_DIR"
+  if [[ "$SEED_ONLY" == "true" ]]; then
+    build_binaries
+    seed_demo_data
+    return 0
+  fi
   if [[ "$CLEANUP_ONLY" == "true" ]]; then
     preflight_checks
     cleanup_demo
@@ -774,6 +873,21 @@ main() {
     start_shard_nodes
     sleep 3
     start_apiserver
+  fi
+  if [[ "$START_ONLY" == "true" ]]; then
+    cat <<'EOF'
+
+== environment started ==
+Node terminals stay open for manual inspection.
+Dashboard:
+  http://127.0.0.1:18100/dashboard/
+API server:
+  http://127.0.0.1:18100
+Logs are stored under /tmp/ddb-demo/logs.
+If you want to run verification later:
+  ./scripts/demo-single-host-sharddb.sh verify-only
+EOF
+    return 0
   fi
   verify_flow
 }

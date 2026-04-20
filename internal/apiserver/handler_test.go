@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/yedou37/ddb/internal/controller"
@@ -260,5 +261,81 @@ func TestNewHandlerSQLReturnsRetryDuringShardMigration(t *testing.T) {
 	}
 	if got, want := rec.Header().Get("Retry-After"), "1"; got != want {
 		t.Fatalf("Retry-After = %q, want %q", got, want)
+	}
+}
+
+func TestNewHandlerDashboardRoutes(t *testing.T) {
+	service, err := controller.NewService(shardmeta.NewClusterConfig(shardmeta.DefaultTotalShards, map[shardmeta.ShardID]shardmeta.GroupID{
+		0: "g1", 1: "g1", 2: "g1", 3: "g1",
+		4: "g2", 5: "g2", 6: "g2", 7: "g2",
+	}))
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	shardStatusServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		case "/status":
+			writeJSON(w, http.StatusOK, model.StatusResponse{
+				NodeID:   "g1-n1",
+				HTTPAddr: "http://g1",
+				Role:     "shard",
+				Leader:   "g1-n1",
+				Tables:   []string{"users"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer shardStatusServer.Close()
+
+	controlServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer controlServer.Close()
+
+	nodeLister := &fakeNodeLister{nodes: []model.NodeInfo{
+		{ID: "ctrl-1", Role: "controller", HTTPAddr: controlServer.URL},
+		{ID: "api-1", Role: "apiserver", HTTPAddr: controlServer.URL},
+		{ID: "g1-n1", Role: "shard", GroupID: "g1", HTTPAddr: shardStatusServer.URL, IsLeader: true},
+	}}
+
+	handler := NewHandler(service, nodeLister, nil, nil)
+
+	overviewRec := httptest.NewRecorder()
+	handler.ServeHTTP(overviewRec, httptest.NewRequest(http.MethodGet, "/dashboard/api/overview", nil))
+	if got, want := overviewRec.Code, http.StatusOK; got != want {
+		t.Fatalf("/dashboard/api/overview code = %d, want %d", got, want)
+	}
+
+	var overview dashboardOverview
+	if err := json.NewDecoder(overviewRec.Body).Decode(&overview); err != nil {
+		t.Fatalf("json.Decode(/dashboard/api/overview) error = %v", err)
+	}
+	if got, want := overview.Summary.TotalNodes, 3; got != want {
+		t.Fatalf("overview.Summary.TotalNodes = %d, want %d", got, want)
+	}
+	if got, want := overview.Summary.ReachableNodes, 3; got != want {
+		t.Fatalf("overview.Summary.ReachableNodes = %d, want %d", got, want)
+	}
+	if got, want := overview.Nodes[2].TableCount, 1; got != want {
+		t.Fatalf("overview.Nodes[2].TableCount = %d, want %d", got, want)
+	}
+
+	pageRec := httptest.NewRecorder()
+	handler.ServeHTTP(pageRec, httptest.NewRequest(http.MethodGet, "/dashboard/", nil))
+	if got, want := pageRec.Code, http.StatusOK; got != want {
+		t.Fatalf("/dashboard/ code = %d, want %d", got, want)
+	}
+	if body := pageRec.Body.String(); !strings.Contains(body, "Cluster Dashboard") {
+		t.Fatalf("/dashboard/ body missing dashboard title")
 	}
 }

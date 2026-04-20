@@ -209,6 +209,18 @@ func (s *Service) HasLockedShards() bool {
 	return len(s.lockedShardIDs) > 0
 }
 
+func (s *Service) LockedShardIDs() []shardmeta.ShardID {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	locked := make([]shardmeta.ShardID, 0, len(s.lockedShardIDs))
+	for shardID := range s.lockedShardIDs {
+		locked = append(locked, shardID)
+	}
+	slices.Sort(locked)
+	return locked
+}
+
 func (s *Service) WithLockedShards(shardIDs []shardmeta.ShardID, fn func() error) error {
 	if err := s.LockShards(shardIDs...); err != nil {
 		return err

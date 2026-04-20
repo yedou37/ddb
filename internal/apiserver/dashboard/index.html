@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ShardDB Dashboard</title>
+    <link rel="stylesheet" href="./app.css" />
+  </head>
+  <body>
+    <div class="bg-grid"></div>
+    <main class="page">
+      <section class="hero card">
+        <div>
+          <p class="eyebrow">ShardDB Visual Console</p>
+          <h1>Cluster Dashboard</h1>
+          <p class="subtitle">通过 `apiserver` 统一轮询展示节点状态、分组健康度、分片分布与迁移情况。</p>
+        </div>
+        <div class="hero-meta">
+          <div class="meta-pill">
+            <span>刷新频率</span>
+            <strong>2s Polling</strong>
+          </div>
+          <div class="meta-pill">
+            <span>数据源</span>
+            <strong>`/dashboard/api/overview`</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="summary-grid" id="summary-grid"></section>
+
+      <section class="layout">
+        <section class="panel card">
+          <div class="panel-head">
+            <div>
+              <h2>Cluster Topology</h2>
+              <p>按角色和 Group 展示节点状态、Leader、可达性与表信息。</p>
+            </div>
+            <div class="status-inline">
+              <span class="live-dot"></span>
+              <span id="generated-at">Waiting for data...</span>
+            </div>
+          </div>
+          <div id="topology"></div>
+        </section>
+
+        <section class="panel card">
+          <div class="panel-head">
+            <div>
+              <h2>Shard Map</h2>
+              <p>当前配置版本下的 shard 到 group 映射，高亮迁移中的分片。</p>
+            </div>
+          </div>
+          <div id="shard-map" class="shard-grid"></div>
+        </section>
+      </section>
+
+      <section class="layout">
+        <section class="panel card">
+          <div class="panel-head">
+            <div>
+              <h2>Group Health</h2>
+              <p>展示每个 Group 的 shard 数量、Leader、在线节点数和可用性。</p>
+            </div>
+          </div>
+          <div id="group-grid" class="group-grid"></div>
+        </section>
+
+        <section class="panel card">
+          <div class="panel-head">
+            <div>
+              <h2>Migration & Alerts</h2>
+              <p>展示当前迁移中的 shard，以及控制面聚合时发现的问题。</p>
+            </div>
+          </div>
+          <div id="migration-panel"></div>
+          <div id="error-panel"></div>
+        </section>
+      </section>
+    </main>
+
+    <template id="empty-state-template">
+      <div class="empty-state">
+        <p>暂无数据</p>
+      </div>
+    </template>
+
+    <script src="./app.js" defer></script>
+  </body>
+  </html>
