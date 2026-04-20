@@ -613,6 +613,126 @@ func TestAutoDiscoveryJoinAfterLeaderFailover(t *testing.T) {
 	waitForNamedRowCountWithin(t, http4, "failover_discovery_books", 3, 25*time.Second)
 }
 
+func TestReadAndMetadataEndpointsSurviveLeaderFailover(t *testing.T) {
+	http1, raft1 := reserveAddr(t), reserveAddr(t)
+	http2, raft2 := reserveAddr(t), reserveAddr(t)
+	http3, raft3 := reserveAddr(t), reserveAddr(t)
+
+	baseDir := t.TempDir()
+	node1 := startNode(t, config.ServerConfig{
+		NodeID:    "node1",
+		HTTPAddr:  http1,
+		RaftAddr:  raft1,
+		RaftDir:   filepath.Join(baseDir, "raft1"),
+		DBPath:    filepath.Join(baseDir, "db1.db"),
+		Bootstrap: true,
+	})
+	waitForHealth(t, http1)
+	waitForLeader(t, http1)
+	_ = startNode(t, config.ServerConfig{
+		NodeID:   "node2",
+		HTTPAddr: http2,
+		RaftAddr: raft2,
+		RaftDir:  filepath.Join(baseDir, "raft2"),
+		DBPath:   filepath.Join(baseDir, "db2.db"),
+		JoinAddr: http1,
+	})
+	waitForHealth(t, http2)
+	_ = startNode(t, config.ServerConfig{
+		NodeID:   "node3",
+		HTTPAddr: http3,
+		RaftAddr: raft3,
+		RaftDir:  filepath.Join(baseDir, "raft3"),
+		DBPath:   filepath.Join(baseDir, "db3.db"),
+		JoinAddr: http1,
+	})
+	waitForHealth(t, http3)
+
+	execSQL(t, http1, "CREATE TABLE metadata_books (id INT PRIMARY KEY, name TEXT)")
+	execSQL(t, http1, "INSERT INTO metadata_books VALUES (1, 'raft')")
+	execSQL(t, http1, "INSERT INTO metadata_books VALUES (2, 'failover')")
+	waitForNamedRowCount(t, http2, "metadata_books", 2)
+	waitForNamedRowCount(t, http3, "metadata_books", 2)
+
+	node1.stop(t)
+	waitForReadableTableWithin(t, []string{http2, http3}, "metadata_books", 2, 20*time.Second)
+
+	tables := waitForTablesWithin(t, []string{http2, http3}, 20*time.Second)
+	if !slices.Contains(tables, "metadata_books") {
+		t.Fatalf("tables = %#v, want metadata_books included", tables)
+	}
+
+	schema := waitForSchemaWithin(t, []string{http2, http3}, "metadata_books", 20*time.Second)
+	if got, want := schema.Name, "metadata_books"; got != want {
+		t.Fatalf("schema.Name = %q, want %q", got, want)
+	}
+	if got, want := schema.PrimaryKey, "id"; got != want {
+		t.Fatalf("schema.PrimaryKey = %q, want %q", got, want)
+	}
+
+	status2 := getStatus(t, http2)
+	status3 := getStatus(t, http3)
+	if status2.Leader == "" && status3.Leader == "" {
+		t.Fatalf("expected at least one surviving node to report a leader")
+	}
+}
+
+func TestRemovedNodeCannotRestartWithoutRejoin(t *testing.T) {
+	etcd := startEmbeddedEtcd(t)
+
+	http1, raft1 := reserveAddr(t), reserveAddr(t)
+	http2, raft2 := reserveAddr(t), reserveAddr(t)
+	http3, raft3 := reserveAddr(t), reserveAddr(t)
+
+	baseDir := t.TempDir()
+	node1Cfg := config.ServerConfig{
+		NodeID:        "node1",
+		HTTPAddr:      http1,
+		RaftAddr:      raft1,
+		RaftDir:       filepath.Join(baseDir, "raft1"),
+		DBPath:        filepath.Join(baseDir, "db1.db"),
+		Bootstrap:     true,
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	}
+	node2Cfg := config.ServerConfig{
+		NodeID:        "node2",
+		HTTPAddr:      http2,
+		RaftAddr:      raft2,
+		RaftDir:       filepath.Join(baseDir, "raft2"),
+		DBPath:        filepath.Join(baseDir, "db2.db"),
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	}
+	node3Cfg := config.ServerConfig{
+		NodeID:        "node3",
+		HTTPAddr:      http3,
+		RaftAddr:      raft3,
+		RaftDir:       filepath.Join(baseDir, "raft3"),
+		DBPath:        filepath.Join(baseDir, "db3.db"),
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	}
+
+	_ = startNode(t, node1Cfg)
+	waitForHealth(t, http1)
+	waitForLeader(t, http1)
+	_ = startNode(t, node2Cfg)
+	waitForHealthWithin(t, http2, 30*time.Second)
+	node3 := startNode(t, node3Cfg)
+	waitForHealthWithin(t, http3, 30*time.Second)
+	waitForMemberCountWithin(t, http1, 3, 20*time.Second)
+
+	postJSON(t, "http://"+http1+"/remove", model.RemoveRequest{NodeID: "node3"})
+	waitForMemberStatusWithin(t, http1, "node3", func(member model.ClusterMember) bool {
+		return !member.InRaft && member.Removed && member.Status == "removed"
+	}, 20*time.Second)
+
+	node3.stop(t)
+
+	_, err := apppkg.NewServerApp(node3Cfg)
+	if !errors.Is(err, http.ErrServerClosed) {
+		t.Fatalf("NewServerApp(removed node without rejoin) error = %v, want %v", err, http.ErrServerClosed)
+	}
+}
+
 func startNode(t *testing.T, cfg config.ServerConfig) *runningNode {
 	t.Helper()
 
@@ -849,6 +969,41 @@ func tryRowCount(addr, table string) (int, bool) {
 	return len(parsed.Result.Rows), true
 }
 
+func tryTables(addr string) ([]string, bool) {
+	resp, err := http.Get("http://" + addr + "/tables")
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var parsed model.SQLResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, false
+	}
+	if !parsed.Success {
+		return nil, false
+	}
+	return parsed.Result.Tables, true
+}
+
+func trySchema(addr, table string) (model.TableSchema, bool) {
+	resp, err := http.Get(fmt.Sprintf("http://%s/schema?table=%s", addr, table))
+	if err != nil {
+		return model.TableSchema{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return model.TableSchema{}, false
+	}
+	var schema model.TableSchema
+	if err := json.NewDecoder(resp.Body).Decode(&schema); err != nil {
+		return model.TableSchema{}, false
+	}
+	return schema, true
+}
+
 func getLeader(t *testing.T, addr string) model.NodeInfo {
 	t.Helper()
 	return getJSON[model.NodeInfo](t, fmt.Sprintf("http://%s/leader", addr))
@@ -862,6 +1017,53 @@ func getStatus(t *testing.T, addr string) model.StatusResponse {
 func getMembers(t *testing.T, addr string) []model.ClusterMember {
 	t.Helper()
 	return getJSON[[]model.ClusterMember](t, fmt.Sprintf("http://%s/members", addr))
+}
+
+func waitForReadableTableWithin(t *testing.T, addrs []string, table string, want int, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, addr := range addrs {
+			if got, ok := tryRowCount(addr, table); ok && got == want {
+				return
+			}
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	t.Fatalf("table %s was not readable with %d rows on any node within %s", table, want, timeout)
+}
+
+func waitForTablesWithin(t *testing.T, addrs []string, timeout time.Duration) []string {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, addr := range addrs {
+			if tables, ok := tryTables(addr); ok {
+				return tables
+			}
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	t.Fatalf("/tables was not available on any node within %s", timeout)
+	return nil
+}
+
+func waitForSchemaWithin(t *testing.T, addrs []string, table string, timeout time.Duration) model.TableSchema {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, addr := range addrs {
+			if schema, ok := trySchema(addr, table); ok {
+				return schema
+			}
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	t.Fatalf("/schema for %s was not available on any node within %s", table, timeout)
+	return model.TableSchema{}
 }
 
 func waitForMemberCountWithin(t *testing.T, addr string, want int, timeout time.Duration) {
