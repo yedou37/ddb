@@ -13,7 +13,7 @@
         <div>
           <p class="eyebrow">ShardDB Visual Console</p>
           <h1>Cluster Dashboard</h1>
-          <p class="subtitle">通过 `apiserver` 统一轮询展示节点状态、分组健康度、分片分布与迁移情况。</p>
+          <p class="subtitle">通过 <code class="inline-code">apiserver</code> 统一轮询展示节点状态、分组健康度、分片分布与迁移情况。</p>
         </div>
         <div class="hero-meta">
           <div class="meta-pill">
@@ -22,7 +22,7 @@
           </div>
           <div class="meta-pill">
             <span>数据源</span>
-            <strong>`/dashboard/api/overview`</strong>
+            <strong><code class="inline-code">/dashboard/api/overview</code></strong>
           </div>
         </div>
       </section>
@@ -76,6 +76,24 @@
           <div id="migration-panel"></div>
           <div id="error-panel"></div>
         </section>
+      </section>
+
+      <section class="panel card">
+        <div class="panel-head">
+          <div>
+            <h2>Table Browser</h2>
+            <p>手动选择一张表并触发查询，展示 <code class="inline-code">SELECT *</code> 的结果，不参与轮询。</p>
+          </div>
+        </div>
+        <div class="table-toolbar">
+          <label class="table-picker">
+            <span>数据表</span>
+            <select id="table-select"></select>
+          </label>
+          <button id="table-load-btn" class="load-btn" type="button">查询数据</button>
+          <span id="table-load-status" class="table-load-status">尚未查询</span>
+        </div>
+        <div id="table-browser"></div>
       </section>
     </main>
 

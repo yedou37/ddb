@@ -31,6 +31,11 @@ type dashboardOverview struct {
 	Errors       []string                `json:"errors,omitempty"`
 }
 
+type dashboardTableData struct {
+	Table  string            `json:"table"`
+	Result model.QueryResult `json:"result"`
+}
+
 type dashboardSummary struct {
 	TotalNodes      int    `json:"total_nodes"`
 	ReachableNodes  int    `json:"reachable_nodes"`
@@ -87,11 +92,37 @@ type dashboardState struct {
 	lastSeen map[string]dashboardNode
 }
 
-func registerDashboardRoutes(mux *http.ServeMux, service *controller.Service, nodeLister NodeLister) {
+func registerDashboardRoutes(mux *http.ServeMux, service *controller.Service, nodeLister NodeLister, executor SQLExecutor) {
 	state := &dashboardState{lastSeen: make(map[string]dashboardNode)}
 	mux.HandleFunc("/dashboard/api/overview", func(w http.ResponseWriter, r *http.Request) {
 		overview := buildDashboardOverview(r.Context(), service, nodeLister, state)
 		writeJSON(w, http.StatusOK, overview)
+	})
+	mux.HandleFunc("/dashboard/api/table-data", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+			return
+		}
+		if executor == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "sql executor is not configured"})
+			return
+		}
+		table := strings.TrimSpace(r.URL.Query().Get("table"))
+		if table == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing table"})
+			return
+		}
+
+		response, err := executor.ExecuteSQL(r.Context(), "SELECT * FROM "+table)
+		if err != nil {
+			writeSQLExecutorError(w, err)
+			return
+		}
+		if !response.Success {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": response.Error})
+			return
+		}
+		writeJSON(w, http.StatusOK, dashboardTableData{Table: table, Result: response.Result})
 	})
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard/", http.StatusTemporaryRedirect)

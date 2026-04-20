@@ -339,3 +339,45 @@ func TestNewHandlerDashboardRoutes(t *testing.T) {
 		t.Fatalf("/dashboard/ body missing dashboard title")
 	}
 }
+
+func TestNewHandlerDashboardTableData(t *testing.T) {
+	service, err := controller.NewService(shardmeta.NewClusterConfig(shardmeta.DefaultTotalShards, map[shardmeta.ShardID]shardmeta.GroupID{
+		0: "g1", 1: "g1", 2: "g1", 3: "g1",
+		4: "g2", 5: "g2", 6: "g2", 7: "g2",
+	}))
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	executor := &fakeSQLExecutor{
+		response: model.SQLResponse{
+			Success: true,
+			Result: model.QueryResult{
+				Type:    "select",
+				Columns: []string{"id", "name"},
+				Rows:    [][]any{{float64(1), "alice"}, {float64(2), "bob"}},
+			},
+		},
+	}
+	handler := NewHandler(service, nil, executor, nil)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard/api/table-data?table=users", nil))
+	if got, want := rec.Code, http.StatusOK; got != want {
+		t.Fatalf("/dashboard/api/table-data code = %d, want %d", got, want)
+	}
+	if got, want := executor.lastSQL, "SELECT * FROM users"; got != want {
+		t.Fatalf("executor.lastSQL = %q, want %q", got, want)
+	}
+
+	var payload dashboardTableData
+	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
+		t.Fatalf("json.Decode(/dashboard/api/table-data) error = %v", err)
+	}
+	if got, want := payload.Table, "users"; got != want {
+		t.Fatalf("payload.Table = %q, want %q", got, want)
+	}
+	if got, want := len(payload.Result.Rows), 2; got != want {
+		t.Fatalf("len(payload.Result.Rows) = %d, want %d", got, want)
+	}
+}

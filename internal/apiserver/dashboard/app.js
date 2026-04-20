@@ -8,9 +8,16 @@ const groupGrid = document.querySelector("#group-grid");
 const migrationPanel = document.querySelector("#migration-panel");
 const errorPanel = document.querySelector("#error-panel");
 const generatedAt = document.querySelector("#generated-at");
+const tableSelect = document.querySelector("#table-select");
+const tableLoadBtn = document.querySelector("#table-load-btn");
+const tableLoadStatus = document.querySelector("#table-load-status");
+const tableBrowser = document.querySelector("#table-browser");
 const emptyTemplate = document.querySelector("#empty-state-template");
 
 let pollHandle = null;
+let currentOverview = null;
+let currentTablePayload = null;
+let currentTableSort = { columnIndex: -1, direction: "asc" };
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -210,6 +217,158 @@ function renderErrors(errors) {
   errorPanel.appendChild(card);
 }
 
+function collectTableNames(nodes) {
+  const names = new Set();
+  asArray(nodes).forEach((node) => {
+    asArray(node.tables).forEach((table) => names.add(table));
+  });
+  return Array.from(names).sort((a, b) => a.localeCompare(b));
+}
+
+function renderTableOptions(overview) {
+  currentOverview = overview;
+  const tableNames = collectTableNames(overview.nodes);
+  const currentValue = tableSelect.value;
+
+  tableSelect.innerHTML = "";
+  if (!tableNames.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "暂无可选数据表";
+    tableSelect.appendChild(option);
+    tableSelect.disabled = true;
+    tableLoadBtn.disabled = true;
+    return;
+  }
+
+  tableNames.forEach((table) => {
+    const option = document.createElement("option");
+    option.value = table;
+    option.textContent = table;
+    tableSelect.appendChild(option);
+  });
+
+  tableSelect.disabled = false;
+  tableLoadBtn.disabled = false;
+  if (tableNames.includes(currentValue)) {
+    tableSelect.value = currentValue;
+  }
+}
+
+function renderTableData(payload) {
+  currentTablePayload = payload;
+  tableBrowser.innerHTML = "";
+  const columns = asArray(payload?.result?.columns);
+  const rows = sortRows(asArray(payload?.result?.rows), currentTableSort);
+
+  if (!columns.length) {
+    tableBrowser.appendChild(cloneEmptyState("查询成功，但没有可展示的列信息。"));
+    return;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "data-table-wrap";
+  const table = document.createElement("table");
+  table.className = "data-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  columns.forEach((column, index) => {
+    const th = document.createElement("th");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sort-btn";
+    button.innerHTML = `
+      <span>${column}</span>
+      <span class="sort-indicator">${sortIndicator(index)}</span>
+    `;
+    button.addEventListener("click", () => {
+      toggleTableSort(index);
+    });
+    th.appendChild(button);
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+
+  const tbody = document.createElement("tbody");
+  if (!rows.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = columns.length;
+    td.textContent = "该表当前没有数据。";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      asArray(row).forEach((value) => {
+        const td = document.createElement("td");
+        td.textContent = value === null ? "NULL" : String(value);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  tableBrowser.appendChild(wrap);
+}
+
+function sortIndicator(index) {
+  if (currentTableSort.columnIndex !== index) {
+    return "↕";
+  }
+  return currentTableSort.direction === "asc" ? "↑" : "↓";
+}
+
+function sortRows(rows, sortState) {
+  const safeRows = asArray(rows).map((row) => asArray(row).slice());
+  if (!safeRows.length || sortState.columnIndex < 0) {
+    return safeRows;
+  }
+
+  const direction = sortState.direction === "desc" ? -1 : 1;
+  return safeRows.sort((left, right) => compareCell(left[sortState.columnIndex], right[sortState.columnIndex]) * direction);
+}
+
+function compareCell(left, right) {
+  if (left === right) {
+    return 0;
+  }
+  if (left === null) {
+    return -1;
+  }
+  if (right === null) {
+    return 1;
+  }
+
+  if (typeof left === "number" && typeof right === "number") {
+    return left - right;
+  }
+
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  if (!Number.isNaN(leftNumber) && !Number.isNaN(rightNumber)) {
+    return leftNumber - rightNumber;
+  }
+
+  return String(left).localeCompare(String(right), "zh-CN", { numeric: true, sensitivity: "base" });
+}
+
+function toggleTableSort(columnIndex) {
+  if (!currentTablePayload) {
+    return;
+  }
+  if (currentTableSort.columnIndex === columnIndex) {
+    currentTableSort.direction = currentTableSort.direction === "asc" ? "desc" : "asc";
+  } else {
+    currentTableSort = { columnIndex, direction: "asc" };
+  }
+  renderTableData(currentTablePayload);
+}
+
 function renderOverview(overview) {
   generatedAt.textContent = new Date(overview.generated_at).toLocaleString();
   renderSummary(overview.summary);
@@ -218,12 +377,30 @@ function renderOverview(overview) {
   renderGroups(overview.groups || []);
   renderMigration(overview.locked_shards || []);
   renderErrors(overview.errors || []);
+  renderTableOptions(overview);
 }
 
 async function loadOverview() {
   const response = await fetch(overviewURL, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`dashboard overview request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+async function loadTableData(table) {
+  const response = await fetch(`./api/table-data?table=${encodeURIComponent(table)}`, { cache: "no-store" });
+  if (!response.ok) {
+    let message = `table-data request failed: ${response.status}`;
+    try {
+      const payload = await response.json();
+      if (payload.error) {
+        message = payload.error;
+      }
+    } catch (_) {
+      // ignore body parse errors
+    }
+    throw new Error(message);
   }
   return response.json();
 }
@@ -238,6 +415,34 @@ async function tick() {
   }
 }
 
+async function handleTableLoad() {
+  const table = tableSelect.value;
+  if (!table) {
+    tableLoadStatus.textContent = "请先选择一个表";
+    tableBrowser.innerHTML = "";
+    tableBrowser.appendChild(cloneEmptyState("请先选择一个数据表。"));
+    return;
+  }
+
+  tableLoadBtn.disabled = true;
+  tableLoadStatus.textContent = `正在查询 ${table} ...`;
+  try {
+    const payload = await loadTableData(table);
+    currentTableSort = { columnIndex: -1, direction: "asc" };
+    renderTableData(payload);
+    const rows = asArray(payload?.result?.rows);
+    tableLoadStatus.textContent = `${table} 查询成功，共 ${rows.length} 行`;
+  } catch (error) {
+    tableBrowser.innerHTML = "";
+    tableBrowser.appendChild(cloneEmptyState(error.message || String(error)));
+    tableLoadStatus.textContent = `查询失败: ${table}`;
+  } finally {
+    if (currentOverview && !tableSelect.disabled) {
+      tableLoadBtn.disabled = false;
+    }
+  }
+}
+
 function startPolling() {
   tick();
   pollHandle = window.setInterval(tick, refreshMs);
@@ -248,5 +453,7 @@ window.addEventListener("beforeunload", () => {
     window.clearInterval(pollHandle);
   }
 });
+
+tableLoadBtn.addEventListener("click", handleTableLoad);
 
 startPolling();

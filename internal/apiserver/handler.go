@@ -36,7 +36,7 @@ type NodeLister interface {
 
 func NewHandler(service *controller.Service, nodeLister NodeLister, executor SQLExecutor, migrator ShardMigrator) http.Handler {
 	mux := http.NewServeMux()
-	registerDashboardRoutes(mux, service, nodeLister)
+	registerDashboardRoutes(mux, service, nodeLister, executor)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
