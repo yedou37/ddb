@@ -1,112 +1,156 @@
-# DDB
+# DDB / ShardDB
 
-A small distributed database prototype built with Go, BoltDB, HashiCorp Raft, and etcd.
+A distributed database prototype built with Go, BoltDB, HashiCorp Raft, and etcd.
 
-## What It Does
+The repository now contains two closely related layers:
 
-- Replicates write requests through Raft
-- Stores table data locally in BoltDB
-- Uses etcd for service discovery and leader lookup
-- Supports explicit `remove` / `rejoin` membership operations
-- Exposes an HTTP API and a CLI
-- Includes unit tests and e2e tests
+- a replicated single-group DDB
+- a ShardDB control plane and data plane with `controller`, `apiserver`, and multi-group shard replicas
+
+## Current Scope
+
+### Core Building Blocks
+
+- Raft-based replication inside each replica group
+- BoltDB-backed local state storage
+- etcd-based service discovery and leader lookup
+- explicit membership operations such as `remove` and `rejoin`
+- HTTP API, CLI, demo scripts, and dashboard
+
+### ShardDB Features
+
+- role-based startup: `controller`, `apiserver`, `shard`
+- shared control-plane config via etcd
+- shard placement and shard-group metadata
+- `move-shard` and `rebalance`
+- migration safety using shard-level locks
+- retry semantics during migration with `503 + Retry-After`
+- a browser dashboard for topology, shard map, health, and table browsing
 
 ## Supported SQL
 
+Current MVP SQL coverage:
+
 - `CREATE TABLE`
-- `INSERT INTO ... VALUES ...`
+- `INSERT INTO ... VALUES (...)`
 - `SELECT ... FROM ... [WHERE ...]`
 - `DELETE FROM ... WHERE ...`
 - `SHOW TABLES`
+- restricted equality `JOIN` support in ShardDB tests and coordinator flow
+
+Notes:
+
+- routing is primary-key oriented for the MVP path
+- migration safety is prioritized over transparent access during shard moves
 
 ## Repository Layout
 
-- `cmd/server`: server entrypoint
+- `cmd/server`: server entrypoint for all roles
 - `cmd/cli`: CLI entrypoint
-- `internal/api`: HTTP handlers
+- `internal/api`: DDB HTTP handlers
+- `internal/apiserver`: ShardDB API server handlers and dashboard
 - `internal/app`: app assembly and lifecycle
 - `internal/config`: config parsing
+- `internal/controller`: control-plane logic and shard management
+- `internal/coordinator`: SQL routing and control-plane execution
 - `internal/discovery`: etcd integration
-- `internal/model`: shared data models
-- `internal/raftnode`: Raft node and FSM
-- `internal/service`: business orchestration
+- `internal/model`: shared API models
+- `internal/raftnode`: Raft node wrapper and FSM
+- `internal/router`: shard router
+- `internal/shardmeta`: shard metadata types
 - `internal/sql`: SQL parser
 - `internal/storage`: BoltDB storage
-- `test/e2e`: end-to-end tests
 - `scripts`: local demo scripts
+- `test/e2e`: in-process and black-box end-to-end tests
+- `docs`: demo and course-oriented runbooks
 
-## Local Run
+## Quick Start
 
-### 1. Start etcd
+### Build
 
 ```bash
-docker run -d --name ddb-etcd -p 2379:2379 \
-  quay.io/coreos/etcd:v3.5.9 \
-  etcd --advertise-client-urls=http://127.0.0.1:2379 \
-       --listen-client-urls=http://0.0.0.0:2379
+go build -o ./bin/ddb-server ./cmd/server
+go build -o ./bin/ddb-cli ./cmd/cli
 ```
 
-### 2. Start node1
+### Start Single-Host ShardDB Demo
+
+Clean the local demo environment:
 
 ```bash
-go run ./cmd/server \
-  --node-id=node1 \
-  --http-addr=127.0.0.1:20080 \
-  --raft-addr=127.0.0.1:20000 \
-  --raft-dir=/tmp/ddb-node1/raft \
-  --db-path=/tmp/ddb-node1/data.db \
-  --bootstrap=true \
-  --etcd=127.0.0.1:2379
+./scripts/demo-single-host-sharddb.sh cleanup-only
 ```
 
-### 3. Start node2 and node3
+Start the environment without built-in verification:
 
 ```bash
-go run ./cmd/server \
-  --node-id=node2 \
-  --http-addr=127.0.0.1:20081 \
-  --raft-addr=127.0.0.1:20001 \
-  --raft-dir=/tmp/ddb-node2/raft \
-  --db-path=/tmp/ddb-node2/data.db \
-  --etcd=127.0.0.1:2379
+./scripts/demo-single-host-sharddb.sh start-only
 ```
 
+Seed demo data into the running environment:
+
 ```bash
-go run ./cmd/server \
-  --node-id=node3 \
-  --http-addr=127.0.0.1:20082 \
-  --raft-addr=127.0.0.1:20002 \
-  --raft-dir=/tmp/ddb-node3/raft \
-  --db-path=/tmp/ddb-node3/data.db \
-  --etcd=127.0.0.1:2379
+./scripts/demo-single-host-sharddb.sh seed-only
 ```
 
-### 4. Use the CLI
+Open the dashboard:
 
 ```bash
-go run ./cmd/cli --etcd=127.0.0.1:2379 cluster members
-go run ./cmd/cli --etcd=127.0.0.1:2379 cluster leader
-go run ./cmd/cli --etcd=127.0.0.1:2379 sql "CREATE TABLE books (id INT PRIMARY KEY, name TEXT)"
-go run ./cmd/cli --etcd=127.0.0.1:2379 sql "INSERT INTO books VALUES (1, 'raft')"
-go run ./cmd/cli --etcd=127.0.0.1:2379 sql "SELECT * FROM books"
+open http://127.0.0.1:18100/dashboard/
 ```
 
-### Read From a Specific Follower
+The dashboard currently shows:
+
+- cluster topology
+- node and group health
+- shard map and migrating shards
+- table browser with manual `SELECT *` loading
+
+## CLI Examples
+
+Inspect the control plane:
 
 ```bash
-go run ./cmd/cli --node-url=http://127.0.0.1:20081 sql "SELECT * FROM books"
-go run ./cmd/cli --node-url=http://127.0.0.1:20082 sql "SELECT * FROM books"
+./bin/ddb-cli --node-url=http://127.0.0.1:18100 control config
+./bin/ddb-cli --node-url=http://127.0.0.1:18100 control groups
+./bin/ddb-cli --node-url=http://127.0.0.1:18100 control shards
+```
+
+Read and write application data:
+
+```bash
+./bin/ddb-cli --node-url=http://127.0.0.1:18100 sql "CREATE TABLE users (id INT PRIMARY KEY, name TEXT)"
+./bin/ddb-cli --node-url=http://127.0.0.1:18100 sql "INSERT INTO users VALUES (1, 'alice')"
+./bin/ddb-cli --node-url=http://127.0.0.1:18100 sql "SELECT * FROM users WHERE id = 1"
+```
+
+Move one shard:
+
+```bash
+./bin/ddb-cli --node-url=http://127.0.0.1:18100 control move-shard 6 g3
+```
+
+Rebalance across groups:
+
+```bash
+./bin/ddb-cli --node-url=http://127.0.0.1:18100 control rebalance g1 g2 g3
+```
+
+Scale out to a new group and rebalance:
+
+```bash
+./bin/ddb-cli --node-url=http://127.0.0.1:18100 control rebalance g1 g2 g3 g4
 ```
 
 ## Membership Management
 
-### Remove a node
+### Remove a Node
 
 ```bash
-go run ./cmd/cli --etcd=127.0.0.1:2379 cluster remove node3
+./bin/ddb-cli --etcd=127.0.0.1:2379 cluster remove node3
 ```
 
-### Rejoin a removed node
+### Rejoin a Removed Node
 
 Start the node with `--rejoin=true`:
 
@@ -121,11 +165,78 @@ go run ./cmd/server \
   --rejoin=true
 ```
 
-Then explicitly recover the logical member:
+Then recover the logical member:
 
 ```bash
 go run ./cmd/cli --etcd=127.0.0.1:2379 cluster rejoin node3 127.0.0.1:20002 127.0.0.1:20082
 ```
+
+## Dashboard
+
+The ShardDB dashboard is served directly by `apiserver` and uses polling from:
+
+- `/dashboard/api/overview`
+- `/dashboard/api/table-data?table=<name>`
+
+Highlights:
+
+- no separate frontend build step
+- static assets embedded with `go:embed`
+- polling-based topology and health updates
+- manual table browsing to avoid heavy periodic data scans
+
+## Demo Scripts
+
+- `scripts/demo-single-host-sharddb.sh`
+  - `cleanup-only`
+  - `start-only`
+  - `verify-only`
+  - `seed-only`
+- `scripts/run-sharddb-node.sh`
+  - start one `controller`, `apiserver`, or `shard` process
+- `scripts/demo-local.sh`
+  - quick local flow
+- `scripts/demo-compose.sh`
+  - compose-based demo
+
+## Documentation
+
+- [single-host-sharddb-dashboard-demo.md](file:///Users/bytedance/dbd/docs/single-host-sharddb-dashboard-demo.md)
+  - single-host dashboard demo runbook
+- [three-machine-sharddb-demo.md](file:///Users/bytedance/dbd/docs/three-machine-sharddb-demo.md)
+  - recommended three-machine classroom demo topology
+- `docs/assignment.txt`
+  - course assignment requirements
+
+## Tests
+
+Run all tests:
+
+```bash
+go test ./...
+```
+
+Run only e2e tests:
+
+```bash
+go test ./test/e2e -v
+```
+
+The repository now includes both:
+
+- in-process e2e tests for fast regression coverage
+- black-box e2e tests that build `cmd/server`, spawn real processes, and validate real HTTP/Raft/discovery behavior
+
+Covered scenarios include:
+
+- replication and leader failover
+- quorum loss rejection
+- remove/rejoin and catch-up
+- discovery-based auto join
+- members state transitions
+- ShardDB control-plane config sharing
+- apiserver restart and config reload
+- shard movement and rebalance flows
 
 ## Docker
 
@@ -135,56 +246,14 @@ Build the image:
 docker build -t ddb:latest .
 ```
 
-Start etcd + 3 nodes:
+Bring up the compose environment:
 
 ```bash
 docker compose up --build
 ```
 
-Useful ports:
+## Notes
 
-- node1 HTTP: `http://127.0.0.1:18080`
-- node2 HTTP: `http://127.0.0.1:18081`
-- node3 HTTP: `http://127.0.0.1:18082`
-- etcd: `127.0.0.1:2379`
-
-## Scripts
-
-- `scripts/demo-local.sh`: print a quick local demo flow
-- `scripts/demo-compose.sh`: start the compose cluster and run a short demo
-
-## Tests
-
-Run unit tests:
-
-```bash
-go test ./...
-```
-
-Run coverage:
-
-```bash
-go test ./... -coverprofile=coverage.out
-go tool cover -func=coverage.out
-```
-
-Run only e2e tests:
-
-```bash
-go test ./test/e2e -v
-```
-
-## Push to GitHub
-
-Create an empty GitHub repository first, then run:
-
-```bash
-git init
-git add .
-git commit -m "init: distributed database MVP"
-git branch -M main
-git remote add origin git@github.com:<your-name>/ddb.git
-git push -u origin main
-```
-
-If your local repository is already initialized, start from `git add .`.
+- The current course demo recommendation is a single control-plane instance plus multiple shard groups.
+- The main availability story is in shard replica groups, not in a multi-controller HA control plane.
+- The dashboard is intended for live demos and observability, not for production-grade administration.

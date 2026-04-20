@@ -1,4 +1,7 @@
-FROM golang:1.25.8-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25.8-alpine AS build
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 
 WORKDIR /src
 
@@ -7,10 +10,10 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/ddb-server ./cmd/server && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/ddb-cli ./cmd/cli
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o /out/ddb-server ./cmd/server && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o /out/ddb-cli ./cmd/cli
 
-FROM alpine:3.20
+FROM --platform=$TARGETPLATFORM alpine:3.20
 
 RUN apk add --no-cache ca-certificates && \
     adduser -D -h /app app
