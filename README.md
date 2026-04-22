@@ -203,6 +203,8 @@ Highlights:
 
 - [single-host-sharddb-dashboard-demo.md](file:///Users/bytedance/dbd/docs/single-host-sharddb-dashboard-demo.md)
   - single-host dashboard demo runbook
+- [two-windows-sharddb-demo.md](file:///Users/bytedance/dbd/docs/two-windows-sharddb-demo.md)
+  - two-Windows physical-host ShardDB demo runbook
 - [three-machine-sharddb-demo.md](file:///Users/bytedance/dbd/docs/three-machine-sharddb-demo.md)
   - recommended three-machine classroom demo topology
 - `docs/assignment.txt`
