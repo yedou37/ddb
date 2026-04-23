@@ -1,0 +1,54 @@
+{
+  "machine_name": "win-c",
+  "project_root": "C:\\ddb",
+  "log_dir": ".ddb-logs\\win-c",
+  "state_dir": ".ddb-state",
+  "build_server_binary": true,
+  "targets": [
+    {
+      "name": "g1-n3",
+      "runner": "ddb-process",
+      "node_id": "g1-n3",
+      "role": "shard",
+      "group_id": "g1",
+      "http_addr": "192.168.1.12:21280",
+      "raft_addr": "192.168.1.12:22280",
+      "raft_dir": "C:\\ddb-demo\\g1-n3\\raft",
+      "db_path": "C:\\ddb-demo\\g1-n3\\data.db",
+      "bootstrap": false,
+      "join_addr": "http://192.168.1.10:21080",
+      "etcd": "192.168.1.10:2379",
+      "health_url": "http://192.168.1.12:21280/health"
+    },
+    {
+      "name": "g2-n3",
+      "runner": "ddb-process",
+      "node_id": "g2-n3",
+      "role": "shard",
+      "group_id": "g2",
+      "http_addr": "192.168.1.12:21281",
+      "raft_addr": "192.168.1.12:22281",
+      "raft_dir": "C:\\ddb-demo\\g2-n3\\raft",
+      "db_path": "C:\\ddb-demo\\g2-n3\\data.db",
+      "bootstrap": false,
+      "join_addr": "http://192.168.1.10:21081",
+      "etcd": "192.168.1.10:2379",
+      "health_url": "http://192.168.1.12:21281/health"
+    },
+    {
+      "name": "g3-n3",
+      "runner": "ddb-process",
+      "node_id": "g3-n3",
+      "role": "shard",
+      "group_id": "g3",
+      "http_addr": "192.168.1.12:21282",
+      "raft_addr": "192.168.1.12:22282",
+      "raft_dir": "C:\\ddb-demo\\g3-n3\\raft",
+      "db_path": "C:\\ddb-demo\\g3-n3\\data.db",
+      "bootstrap": false,
+      "join_addr": "http://192.168.1.10:21082",
+      "etcd": "192.168.1.10:2379",
+      "health_url": "http://192.168.1.12:21282/health"
+    }
+  ]
+}
