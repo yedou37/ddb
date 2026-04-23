@@ -3,6 +3,11 @@ coverage.html
 
 bin/
 dist/
+animation/node_modules/
+animation/dist/
+animation/output/
+animation/.motion-canvas-home/
+*.swp
 
 *.db
 *.db-journal

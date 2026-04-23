@@ -203,6 +203,8 @@ Highlights:
 
 - [single-host-sharddb-dashboard-demo.md](file:///Users/bytedance/dbd/docs/single-host-sharddb-dashboard-demo.md)
   - single-host dashboard demo runbook
+- [sharddb-animation-design.md](file:///Users/bytedance/dbd/docs/sharddb-animation-design.md)
+  - animation design for AI-assisted coding and framework-rendered system explainer
 - [two-windows-sharddb-demo.md](file:///Users/bytedance/dbd/docs/two-windows-sharddb-demo.md)
   - two-Windows physical-host ShardDB demo runbook
 - [three-machine-sharddb-demo.md](file:///Users/bytedance/dbd/docs/three-machine-sharddb-demo.md)
