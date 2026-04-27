@@ -246,20 +246,26 @@ export default makeScene2D(function* (view) {
     </>,
   );
 
-  yield* all(clientRef().opacity(1, 0.5), etcdRef().opacity(1, 0.6), apiRef().opacity(1, 0.6));
-  yield* all(g1Ref().opacity(1, 0.5), g2Ref().opacity(1, 0.5), g3Ref().opacity(1, 0.5));
+  yield* all(clientRef().opacity(1, 0.7), etcdRef().opacity(1, 0.8), apiRef().opacity(1, 0.8));
+  yield* all(g1Ref().opacity(1, 0.7), g2Ref().opacity(1, 0.7), g3Ref().opacity(1, 0.7));
+  yield* waitFor(0.35);
 
-  yield* clientToApi().end(1, 0.7);
+  yield* clientToApi().end(1, 0.95);
   packetARef().position([-720, -8]);
   packetBRef().position([-720, 82]);
-  yield* all(packetARef().opacity(1, 0.25), packetBRef().opacity(1, 0.25));
-  yield* all(packetARef().position([-520, -8], 0.6), packetBRef().position([-520, 82], 0.6));
-  yield* all(packetARef().position([-160, -40], 0.7), packetBRef().position([-160, 14], 0.7));
+  yield* all(packetARef().opacity(1, 0.35), packetBRef().opacity(1, 0.35));
+  yield* all(packetARef().position([-520, -8], 0.85), packetBRef().position([-520, 82], 0.85));
+  yield* all(packetARef().position([-160, -40], 0.95), packetBRef().position([-160, 14], 0.95));
+  yield* waitFor(0.25);
 
-  yield* apiToEtcd().end(1, 0.5);
-  yield* all(apiToG1().end(1, 0.7), apiToG3().end(1, 0.7));
-  yield* all(packetARef().position([-360, 160], 0.8), packetBRef().position([380, 160], 0.8));
-  yield* all(routeTagARef().opacity(1, 0.35), routeTagBRef().opacity(1, 0.35));
-  yield* all(g1Ref().scale(1.03, 0.25).to(1, 0.25), g3Ref().scale(1.03, 0.25).to(1, 0.25));
-  yield* waitFor(0.6);
+  yield* apiToEtcd().end(1, 0.7);
+  yield* waitFor(0.2);
+  yield* all(apiToG1().end(1, 0.95), apiToG3().end(1, 0.95));
+  yield* all(packetARef().position([-360, 160], 1.05), packetBRef().position([380, 160], 1.05));
+  yield* all(routeTagARef().opacity(1, 0.45), routeTagBRef().opacity(1, 0.45));
+  yield* all(
+    g1Ref().scale(1.03, 0.22).to(1, 0.22).to(1.03, 0.22).to(1, 0.22),
+    g3Ref().scale(1.03, 0.22).to(1, 0.22).to(1.03, 0.22).to(1, 0.22),
+  );
+  yield* waitFor(1.0);
 });

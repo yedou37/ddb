@@ -315,21 +315,24 @@ export default makeScene2D(function* (view) {
   );
 
   yield* all(
-    leftPanelRef().opacity(1, 0.5),
-    routerRef().opacity(1, 0.5),
-    mappingRef().opacity(1, 0.5),
-    groupsRef().opacity(1, 0.6),
+    leftPanelRef().opacity(1, 0.7),
+    routerRef().opacity(1, 0.7),
+    mappingRef().opacity(1, 0.7),
+    groupsRef().opacity(1, 0.8),
   );
+  yield* waitFor(0.3);
 
-  yield* all(packetARef().opacity(1, 0.3), packetBRef().opacity(1, 0.3));
-  yield* all(routeA1().end(1, 0.6), routeB1().end(1, 0.6));
-  yield* all(keyARef().opacity(1, 0.3), keyBRef().opacity(1, 0.3));
+  yield* all(packetARef().opacity(1, 0.4), packetBRef().opacity(1, 0.4));
+  yield* all(routeA1().end(1, 0.85), routeB1().end(1, 0.85));
+  yield* all(keyARef().opacity(1, 0.4), keyBRef().opacity(1, 0.4));
+  yield* waitFor(0.25);
 
-  yield* all(routeA2().end(1, 0.55), routeB2().end(1, 0.55));
-  yield* all(shardARef().opacity(1, 0.3), shardBRef().opacity(1, 0.3));
+  yield* all(routeA2().end(1, 0.8), routeB2().end(1, 0.8));
+  yield* all(shardARef().opacity(1, 0.4), shardBRef().opacity(1, 0.4));
+  yield* waitFor(0.25);
 
-  yield* all(routeA3().end(1, 0.75), routeB3().end(1, 0.75));
-  yield* all(targetARef().opacity(1, 0.3), targetBRef().opacity(1, 0.3));
+  yield* all(routeA3().end(1, 1.0), routeB3().end(1, 1.0));
+  yield* all(targetARef().opacity(1, 0.4), targetBRef().opacity(1, 0.4));
 
-  yield* waitFor(0.8);
+  yield* waitFor(1.1);
 });

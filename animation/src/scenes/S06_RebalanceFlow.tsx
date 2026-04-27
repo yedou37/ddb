@@ -5,6 +5,7 @@ import {GroupPanel} from '../components/GroupPanel';
 import {MigrationChip} from '../components/MigrationChip';
 import {rebalanceAfter, rebalanceBefore, rebalanceMoves} from '../data/rebalance';
 import {colors} from '../theme/colors';
+import {flashTwice} from '../utils/animation';
 
 export default makeScene2D(function* (view) {
   const clusterScale = 0.68;
@@ -198,40 +199,44 @@ export default makeScene2D(function* (view) {
     </>,
   );
 
-  yield* all(clusterRef().opacity(1, 0.55), controlRef().opacity(1, 0.5));
-  yield* all(group4GhostRef().opacity(0.8, 0.5), joinBadgeRef().opacity(1, 0.35));
-  yield* moveListRef().opacity(1, 0.45);
+  yield* all(clusterRef().opacity(1, 0.8), controlRef().opacity(1, 0.7));
+  yield* waitFor(0.3);
+  yield* all(group4GhostRef().opacity(0.8, 0.7), joinBadgeRef().opacity(1, 0.5));
+  yield* moveListRef().opacity(1, 0.55);
 
   move1Ref().position(sourcePositions[0]);
   move2Ref().position(sourcePositions[1]);
 
   yield* all(
-    move1Ref().opacity(1, 0.2),
-    move2Ref().opacity(1, 0.2),
+    move1Ref().opacity(1, 0.3),
+    move2Ref().opacity(1, 0.3),
   );
 
-  yield* stageRef().opacity(1, 0.3);
+  yield* stageRef().opacity(1, 0.45);
+  yield* flashTwice(stageRef(), 1, 0.72, 0.12, 0.1, 0.1);
   yield* all(
-    group1BeforeRef().opacity(0, 0.25),
-    group1AfterRef().opacity(1, 0.25),
-    group2BeforeRef().opacity(0, 0.25),
-    group2AfterRef().opacity(1, 0.25),
-    move1Ref().position(centerStagePositions[0], 0.9),
-    move2Ref().position(centerStagePositions[1], 0.9),
+    group1BeforeRef().opacity(0, 0.35),
+    group1AfterRef().opacity(1, 0.35),
+    group2BeforeRef().opacity(0, 0.35),
+    group2AfterRef().opacity(1, 0.35),
+    move1Ref().position(centerStagePositions[0], 1.15),
+    move2Ref().position(centerStagePositions[1], 1.15),
   );
-
-  yield* all(
-    stageRef().opacity(0.08, 1.1),
-    move1Ref().position(targetPositions[0], 1.1),
-    move2Ref().position(targetPositions[1], 1.1),
-  );
+  yield* waitFor(0.25);
 
   yield* all(
-    group4GhostRef().opacity(0, 0.2),
-    group4AfterRef().opacity(1, 0.2),
-    move1Ref().opacity(0, 0.2),
-    move2Ref().opacity(0, 0.2),
+    stageRef().opacity(0.08, 1.35),
+    move1Ref().position(targetPositions[0], 1.35),
+    move2Ref().position(targetPositions[1], 1.35),
   );
 
-  yield* waitFor(0.15);
+  yield* all(
+    group4GhostRef().opacity(0, 0.3),
+    group4AfterRef().opacity(1, 0.3),
+    move1Ref().opacity(0, 0.3),
+    move2Ref().opacity(0, 0.3),
+  );
+  yield* flashTwice(group4AfterRef(), 1, 0.7, 0.14, 0.1, 0.12);
+
+  yield* waitFor(0.9);
 });

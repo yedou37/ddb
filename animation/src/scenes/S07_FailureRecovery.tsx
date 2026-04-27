@@ -9,6 +9,7 @@ import {GroupPanel} from '../components/GroupPanel';
 import {NodeCard} from '../components/NodeCard';
 import {RequestPacket} from '../components/RequestPacket';
 import {colors} from '../theme/colors';
+import {flashTwice} from '../utils/animation';
 
 export default makeScene2D(function* (view) {
   const clientRef = createRef<Layout>();
@@ -277,27 +278,30 @@ export default makeScene2D(function* (view) {
   );
 
   yield* all(
-    clientRef().opacity(1, 0.5),
-    etcdRef().opacity(1, 0.6),
-    apiRef().opacity(1, 0.6),
-    g1BaseRef().opacity(1, 0.5),
-    g2Ref().opacity(1, 0.5),
-    g3Ref().opacity(1, 0.5),
+    clientRef().opacity(1, 0.7),
+    etcdRef().opacity(1, 0.8),
+    apiRef().opacity(1, 0.8),
+    g1BaseRef().opacity(1, 0.7),
+    g2Ref().opacity(1, 0.7),
+    g3Ref().opacity(1, 0.7),
   );
+  yield* waitFor(0.3);
 
   writePacketRef().position([-720, -8]);
-  yield* all(apiToEtcdRef().end(1, 0.5), apiToG1Ref().end(1, 0.7), writePacketRef().opacity(1, 0.25));
-  yield* writePacketRef().position([-160, -40], 0.7);
+  yield* all(apiToEtcdRef().end(1, 0.75), apiToG1Ref().end(1, 0.95), writePacketRef().opacity(1, 0.35));
+  yield* writePacketRef().position([-160, -40], 0.95);
+  yield* waitFor(0.25);
 
-  yield* all(g1BaseRef().opacity(0, 0.25), g1FailureRef().opacity(1, 0.25), failureBadgeRef().opacity(1, 0.3));
+  yield* all(g1BaseRef().opacity(0, 0.35), g1FailureRef().opacity(1, 0.35), failureBadgeRef().opacity(1, 0.45));
+  yield* flashTwice(failureBadgeRef());
   apiToG1Ref().stroke(colors.danger);
-  yield* waitFor(0.5);
+  yield* waitFor(0.65);
 
-  yield* all(g1FailureRef().opacity(0, 0.25), g1RecoveredRef().opacity(1, 0.25), electionBadgeRef().opacity(1, 0.3));
+  yield* all(g1FailureRef().opacity(0, 0.35), g1RecoveredRef().opacity(1, 0.35), electionBadgeRef().opacity(1, 0.45));
   apiToG1Ref().stroke(colors.success);
-  yield* writePacketRef().position([-360, 160], 0.7);
+  yield* writePacketRef().position([-360, 160], 0.95);
 
-  yield* recoveryBadgeRef().opacity(1, 0.35);
+  yield* recoveryBadgeRef().opacity(1, 0.45);
 
-  yield* waitFor(0.8);
+  yield* waitFor(1.1);
 });

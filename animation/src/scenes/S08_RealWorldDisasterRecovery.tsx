@@ -7,6 +7,7 @@ import {GroupPanel} from '../components/GroupPanel';
 import {NodeCard} from '../components/NodeCard';
 import {overviewTopology} from '../data/topology';
 import {colors} from '../theme/colors';
+import {flashTwice} from '../utils/animation';
 
 export default makeScene2D(function* (view) {
   const healthyReturnIndexes = [3, 4, 5, 6, 7, 8];
@@ -97,14 +98,15 @@ export default makeScene2D(function* (view) {
         <Rect
           x={560}
           y={-184}
-          width={390}
-          height={72}
+          width={430}
+          height={92}
           radius={18}
           fill={colors.surface}
           stroke={colors.api}
           lineWidth={3}
         >
-          <Txt text={'same logical cluster, different physical sites'} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'same logical cluster,'} y={-12} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'different physical sites'} y={18} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
         </Rect>
       </Layout>
 
@@ -112,14 +114,15 @@ export default makeScene2D(function* (view) {
         <Rect
           x={0}
           y={-304}
-          width={560}
-          height={64}
+          width={620}
+          height={92}
           radius={16}
           fill={colors.surface}
           stroke={colors.api}
           lineWidth={3}
         >
-          <Txt text={'logical replicas spread into three geographic failure domains'} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'logical replicas spread into three'} y={-12} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'geographic failure domains'} y={18} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
         </Rect>
       </Layout>
 
@@ -229,14 +232,15 @@ export default makeScene2D(function* (view) {
         <Rect
           x={0}
           y={344}
-          width={420}
-          height={64}
+          width={460}
+          height={92}
           radius={16}
           fill={colors.surface}
           stroke={colors.danger}
           lineWidth={3}
         >
-          <Txt text={'all machines in site A fail at once'} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'all machines in site A'} y={-12} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'fail at once'} y={18} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
         </Rect>
       </Layout>
 
@@ -244,14 +248,15 @@ export default makeScene2D(function* (view) {
         <Rect
           x={0}
           y={418}
-          width={520}
-          height={64}
+          width={560}
+          height={92}
           radius={16}
           fill={colors.surface}
           stroke={colors.success}
           lineWidth={3}
         >
-          <Txt text={'each group still has 2 of 3 replicas alive'} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'each group still has'} y={-12} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'2 of 3 replicas alive'} y={18} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
         </Rect>
       </Layout>
 
@@ -317,69 +322,71 @@ export default makeScene2D(function* (view) {
         <Rect
           x={0}
           y={-184}
-          width={560}
-          height={72}
+          width={620}
+          height={92}
           radius={18}
           fill={colors.surface}
           stroke={colors.success}
           lineWidth={3}
         >
-          <Txt text={'one node down per group, yet every group still works'} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'one node down per group,'} y={-12} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
+          <Txt text={'yet every group still works'} y={18} fill={colors.textPrimary} fontSize={22} fontWeight={700} />
         </Rect>
       </Layout>
     </>,
   );
 
-  yield* all(logicalBeforeRef().opacity(1, 0.55), badgeRef().opacity(1, 0.35));
-  yield* waitFor(0.55);
+  yield* all(logicalBeforeRef().opacity(1, 0.8), badgeRef().opacity(1, 0.45));
+  yield* waitFor(0.85);
 
   nodeFlows.forEach((flow, index) => {
     movingNodeRefs[index]().position(flow.source);
   });
   yield* all(
-    geoShellRef().opacity(1, 0.45),
-    geoBadgeRef().opacity(1, 0.3),
-    ...movingNodeRefs.map(ref => ref().opacity(1, 0.2)),
+    geoShellRef().opacity(1, 0.65),
+    geoBadgeRef().opacity(1, 0.45),
+    ...movingNodeRefs.map(ref => ref().opacity(1, 0.32)),
   );
   yield* all(
-    logicalBeforeRef().opacity(0.18, 0.9),
-    badgeRef().opacity(0, 0.3),
-    ...nodeFlows.map((flow, index) => movingNodeRefs[index]().position(flow.target, 0.9)),
+    logicalBeforeRef().opacity(0.18, 1.2),
+    badgeRef().opacity(0, 0.4),
+    ...nodeFlows.map((flow, index) => movingNodeRefs[index]().position(flow.target, 1.2)),
   );
-  yield* logicalBeforeRef().opacity(0, 0.25);
-  yield* waitFor(0.4);
+  yield* logicalBeforeRef().opacity(0, 0.35);
+  yield* waitFor(0.55);
 
   yield* all(
-    movingNodeRefs[0]().opacity(0.08, 0.25),
-    movingNodeRefs[1]().opacity(0.08, 0.25),
-    movingNodeRefs[2]().opacity(0.08, 0.25),
-    siteAFailedRef().opacity(1, 0.3),
-    failBadgeRef().opacity(1, 0.3),
+    movingNodeRefs[0]().opacity(0.08, 0.35),
+    movingNodeRefs[1]().opacity(0.08, 0.35),
+    movingNodeRefs[2]().opacity(0.08, 0.35),
+    siteAFailedRef().opacity(1, 0.45),
+    failBadgeRef().opacity(1, 0.45),
   );
-  yield* surviveBadgeRef().opacity(1, 0.35);
-  yield* waitFor(0.7);
+  yield* flashTwice(failBadgeRef());
+  yield* surviveBadgeRef().opacity(1, 0.45);
+  yield* waitFor(0.95);
 
   yield* all(
-    geoShellRef().opacity(0.18, 0.35),
-    geoBadgeRef().opacity(0, 0.25),
-    failBadgeRef().opacity(0, 0.25),
-    surviveBadgeRef().opacity(0, 0.25),
-    siteAFailedRef().opacity(0.15, 0.35),
-    logicalAfterRef().opacity(0.28, 0.35),
+    geoShellRef().opacity(0.18, 0.45),
+    geoBadgeRef().opacity(0, 0.35),
+    failBadgeRef().opacity(0, 0.35),
+    surviveBadgeRef().opacity(0, 0.35),
+    siteAFailedRef().opacity(0.15, 0.45),
+    logicalAfterRef().opacity(0.28, 0.45),
     ...healthyReturnIndexes.map(index =>
-      movingNodeRefs[index]().position(nodeFlows[index].source, 0.8),
+      movingNodeRefs[index]().position(nodeFlows[index].source, 1.0),
     ),
   );
   yield* all(
-    logicalAfterRef().opacity(1, 0.35),
-    finalBadgeRef().opacity(1, 0.35),
-    ...healthyReturnIndexes.map(index => movingNodeRefs[index]().opacity(0, 0.22)),
-    movingNodeRefs[0]().opacity(0, 0.22),
-    movingNodeRefs[1]().opacity(0, 0.22),
-    movingNodeRefs[2]().opacity(0, 0.22),
-    geoShellRef().opacity(0, 0.25),
-    siteAFailedRef().opacity(0, 0.25),
+    logicalAfterRef().opacity(1, 0.45),
+    finalBadgeRef().opacity(1, 0.45),
+    ...healthyReturnIndexes.map(index => movingNodeRefs[index]().opacity(0, 0.3)),
+    movingNodeRefs[0]().opacity(0, 0.3),
+    movingNodeRefs[1]().opacity(0, 0.3),
+    movingNodeRefs[2]().opacity(0, 0.3),
+    geoShellRef().opacity(0, 0.35),
+    siteAFailedRef().opacity(0, 0.35),
   );
-  yield* all(apiToG1Ref().end(1, 0.55), apiToG3Ref().end(1, 0.55));
-  yield* waitFor(0.8);
+  yield* all(apiToG1Ref().end(1, 0.8), apiToG3Ref().end(1, 0.8));
+  yield* waitFor(1.15);
 });
