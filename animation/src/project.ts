@@ -1,6 +1,7 @@
 import {makeProject} from '@motion-canvas/core';
 
 import overview from './scenes/S01_Overview?scene';
+import rowShardGroupNode from './scenes/S02_RowShardGroupNode?scene';
 import sharding from './scenes/S03_Sharding?scene';
 import hashRing from './scenes/S04_HashRing?scene';
 import groupJoin from './scenes/S05_GroupJoin?scene';
@@ -9,5 +10,5 @@ import failureRecovery from './scenes/S07_FailureRecovery?scene';
 import realWorldDisasterRecovery from './scenes/S08_RealWorldDisasterRecovery?scene';
 
 export default makeProject({
-  scenes: [overview, sharding, hashRing, groupJoin, rebalanceFlow, failureRecovery, realWorldDisasterRecovery],
+  scenes: [overview, rowShardGroupNode, sharding, hashRing, groupJoin, rebalanceFlow, failureRecovery, realWorldDisasterRecovery],
 });

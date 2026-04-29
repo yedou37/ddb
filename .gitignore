@@ -24,3 +24,15 @@ tmp/
 docker-data/
 
 default.etcd/
+
+# LaTeX compilation artifacts
+*.aux
+*.log
+*.toc
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.synctex
+*.xdv
+*.pdf

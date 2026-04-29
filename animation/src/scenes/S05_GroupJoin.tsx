@@ -222,5 +222,5 @@ export default makeScene2D(function* (view) {
   yield* all(apiToG4Ref().end(1, 0.95), routeBadgeRef().opacity(1, 0.45));
   yield* flashTwice(routeBadgeRef());
 
-  yield* waitFor(1.1);
+  yield* waitFor(2.0);
 });

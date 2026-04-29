@@ -300,5 +300,5 @@ export default makeScene2D(function* (view) {
     ...rowRefs.map(ref => ref().opacity(0, 0.38)),
   );
 
-  yield* waitFor(1.3);
+  yield* waitFor(2.2);
 });

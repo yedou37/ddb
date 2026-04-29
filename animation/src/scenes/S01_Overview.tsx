@@ -267,5 +267,5 @@ export default makeScene2D(function* (view) {
     g1Ref().scale(1.03, 0.22).to(1, 0.22).to(1.03, 0.22).to(1, 0.22),
     g3Ref().scale(1.03, 0.22).to(1, 0.22).to(1.03, 0.22).to(1, 0.22),
   );
-  yield* waitFor(1.0);
+  yield* waitFor(2.0);
 });

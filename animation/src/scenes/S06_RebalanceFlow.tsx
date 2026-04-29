@@ -35,9 +35,13 @@ export default makeScene2D(function* (view) {
   ];
 
   const controlRef = createRef<Layout>();
+  const ownershipCardRef = createRef<Layout>();
   const moveListRef = createRef<Layout>();
   const stageRef = createRef<Layout>();
   const joinBadgeRef = createRef<Layout>();
+  const joinNode1Ref = createRef<Layout>();
+  const joinNode2Ref = createRef<Layout>();
+  const joinNode3Ref = createRef<Layout>();
   const clusterRef = createRef<Layout>();
   const group1BeforeRef = createRef<Layout>();
   const group1AfterRef = createRef<Layout>();
@@ -167,10 +171,81 @@ export default makeScene2D(function* (view) {
         <Txt text={'new group 4 joins'} x={group4Pos[0] * clusterScale} y={58} fill={colors.api} fontSize={22} fontWeight={700} />
       </Layout>
 
+      <Layout ref={joinNode1Ref} opacity={0}>
+        <Rect
+          x={group4Pos[0] * clusterScale - 98}
+          y={100}
+          width={92}
+          height={32}
+          radius={12}
+          fill={colors.surface}
+          stroke={colors.api}
+          lineWidth={2}
+        >
+          <Txt text={'node 1'} fill={colors.textPrimary} fontSize={16} fontWeight={700} />
+        </Rect>
+      </Layout>
+      <Layout ref={joinNode2Ref} opacity={0}>
+        <Rect
+          x={group4Pos[0] * clusterScale}
+          y={100}
+          width={92}
+          height={32}
+          radius={12}
+          fill={colors.surface}
+          stroke={colors.api}
+          lineWidth={2}
+        >
+          <Txt text={'node 2'} fill={colors.textPrimary} fontSize={16} fontWeight={700} />
+        </Rect>
+      </Layout>
+      <Layout ref={joinNode3Ref} opacity={0}>
+        <Rect
+          x={group4Pos[0] * clusterScale + 98}
+          y={100}
+          width={92}
+          height={32}
+          radius={12}
+          fill={colors.surface}
+          stroke={colors.api}
+          lineWidth={2}
+        >
+          <Txt text={'node 3'} fill={colors.textPrimary} fontSize={16} fontWeight={700} />
+        </Rect>
+      </Layout>
+
+      <Layout ref={ownershipCardRef} opacity={0}>
+        <Rect
+          x={622}
+          y={-124}
+          width={520}
+          height={262}
+          radius={26}
+          fill={colors.surface}
+          stroke={colors.panelStroke}
+          lineWidth={3}
+          opacity={0.96}
+        />
+        <Txt text={'shard ownership'} x={622} y={-218} fill={colors.textPrimary} fontSize={28} fontWeight={700} />
+        <Txt text={'before'} x={512} y={-184} fill={colors.warning} fontSize={18} fontWeight={700} />
+        <Txt text={'after'} x={732} y={-184} fill={colors.api} fontSize={18} fontWeight={700} />
+        <Rect x={622} y={-106} width={2} height={146} fill={colors.panelStroke} opacity={0.7} />
+
+        <Txt text={'group 1 : S0 S1 S2'} x={512} y={-138} fill={colors.warning} fontSize={20} fontWeight={700} />
+        <Txt text={'group 2 : S3 S4 S5'} x={512} y={-102} fill={colors.warning} fontSize={20} fontWeight={700} />
+        <Txt text={'group 3 : S6 S7'} x={512} y={-66} fill={colors.warning} fontSize={20} fontWeight={700} />
+
+        <Txt text={'group 1 : S0 S1'} x={732} y={-138} fill={colors.api} fontSize={20} fontWeight={700} />
+        <Txt text={'group 2 : S3 S4'} x={732} y={-102} fill={colors.api} fontSize={20} fontWeight={700} />
+        <Txt text={'group 3 : S6 S7'} x={732} y={-66} fill={colors.api} fontSize={20} fontWeight={700} />
+        <Txt text={'group 4 : S2 S5'} x={732} y={-30} fill={colors.api} fontSize={20} fontWeight={700} />
+      </Layout>
+
       <Layout ref={moveListRef} opacity={0}>
-        <Txt text={'migration plan'} x={622} y={-220} fill={colors.textPrimary} fontSize={28} fontWeight={700} />
-        <Txt text={'S2 : group 1 -> group 4'} x={622} y={-180} fill={colors.warning} fontSize={20} fontWeight={700} />
-        <Txt text={'S5 : group 2 -> group 4'} x={622} y={-146} fill={colors.warning} fontSize={20} fontWeight={700} />
+        <Txt text={'migration plan'} x={622} y={42} fill={colors.textPrimary} fontSize={28} fontWeight={700} />
+        <Txt text={'1. S2 : group 1 -> group 4'} x={622} y={82} fill={colors.warning} fontSize={20} fontWeight={700} />
+        <Txt text={'2. S5 : group 2 -> group 4'} x={622} y={116} fill={colors.warning} fontSize={20} fontWeight={700} />
+        <Txt text={'lock shard, copy data, then switch ownership'} x={622} y={148} fill={colors.textSecondary} fontSize={18} />
       </Layout>
 
       <Layout ref={stageRef} opacity={0}>
@@ -200,43 +275,62 @@ export default makeScene2D(function* (view) {
   );
 
   yield* all(clusterRef().opacity(1, 0.8), controlRef().opacity(1, 0.7));
-  yield* waitFor(0.3);
+  yield* waitFor(0.45);
   yield* all(group4GhostRef().opacity(0.8, 0.7), joinBadgeRef().opacity(1, 0.5));
-  yield* moveListRef().opacity(1, 0.55);
+  yield* waitFor(0.18);
+  yield* joinNode1Ref().opacity(1, 0.28);
+  yield* waitFor(0.12);
+  yield* joinNode2Ref().opacity(1, 0.28);
+  yield* waitFor(0.12);
+  yield* joinNode3Ref().opacity(1, 0.28);
+  yield* waitFor(0.36);
+  yield* all(
+    joinNode1Ref().opacity(0, 0.22),
+    joinNode2Ref().opacity(0, 0.22),
+    joinNode3Ref().opacity(0, 0.22),
+  );
+  yield* waitFor(0.12);
+  yield* flashTwice(group4GhostRef(), 0.95, 0.42, 0.18, 0.12, 0.12);
+  yield* waitFor(0.25);
+
+  yield* ownershipCardRef().opacity(1, 0.6);
+  yield* waitFor(1.1);
+  yield* moveListRef().opacity(1, 0.6);
+  yield* waitFor(0.45);
 
   move1Ref().position(sourcePositions[0]);
   move2Ref().position(sourcePositions[1]);
 
   yield* all(
-    move1Ref().opacity(1, 0.3),
-    move2Ref().opacity(1, 0.3),
+    move1Ref().opacity(1, 0.4),
+    move2Ref().opacity(1, 0.4),
   );
 
-  yield* stageRef().opacity(1, 0.45);
-  yield* flashTwice(stageRef(), 1, 0.72, 0.12, 0.1, 0.1);
+  yield* stageRef().opacity(1, 0.55);
+  yield* flashTwice(stageRef(), 1, 0.72, 0.14, 0.12, 0.12);
   yield* all(
-    group1BeforeRef().opacity(0, 0.35),
-    group1AfterRef().opacity(1, 0.35),
-    group2BeforeRef().opacity(0, 0.35),
-    group2AfterRef().opacity(1, 0.35),
-    move1Ref().position(centerStagePositions[0], 1.15),
-    move2Ref().position(centerStagePositions[1], 1.15),
+    group1BeforeRef().opacity(0, 0.42),
+    group1AfterRef().opacity(1, 0.42),
+    group2BeforeRef().opacity(0, 0.42),
+    group2AfterRef().opacity(1, 0.42),
+    move1Ref().position(centerStagePositions[0], 1.35),
+    move2Ref().position(centerStagePositions[1], 1.35),
   );
-  yield* waitFor(0.25);
+  yield* waitFor(0.38);
 
   yield* all(
-    stageRef().opacity(0.08, 1.35),
-    move1Ref().position(targetPositions[0], 1.35),
-    move2Ref().position(targetPositions[1], 1.35),
+    stageRef().opacity(0.08, 1.55),
+    move1Ref().position(targetPositions[0], 1.55),
+    move2Ref().position(targetPositions[1], 1.55),
   );
 
   yield* all(
-    group4GhostRef().opacity(0, 0.3),
-    group4AfterRef().opacity(1, 0.3),
-    move1Ref().opacity(0, 0.3),
-    move2Ref().opacity(0, 0.3),
+    group4GhostRef().opacity(0, 0.35),
+    group4AfterRef().opacity(1, 0.35),
+    move1Ref().opacity(0, 0.35),
+    move2Ref().opacity(0, 0.35),
   );
   yield* flashTwice(group4AfterRef(), 1, 0.7, 0.14, 0.1, 0.12);
 
-  yield* waitFor(0.9);
+  yield* waitFor(2.0);
 });

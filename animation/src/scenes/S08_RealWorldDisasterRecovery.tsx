@@ -388,5 +388,5 @@ export default makeScene2D(function* (view) {
     siteAFailedRef().opacity(0, 0.35),
   );
   yield* all(apiToG1Ref().end(1, 0.8), apiToG3Ref().end(1, 0.8));
-  yield* waitFor(1.15);
+  yield* waitFor(2.1);
 });
