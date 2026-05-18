@@ -43,6 +43,19 @@ func TestParseInsertWithQuotedComma(t *testing.T) {
 	}
 }
 
+func TestParseDropTable(t *testing.T) {
+	statement, err := Parse("DROP TABLE users")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if got, want := statement.Type, model.StatementDropTable; got != want {
+		t.Fatalf("statement.Type = %q, want %q", got, want)
+	}
+	if got, want := statement.Table, "users"; got != want {
+		t.Fatalf("statement.Table = %q, want %q", got, want)
+	}
+}
+
 func TestParseSelectWithWhere(t *testing.T) {
 	statement, err := Parse("SELECT id, name FROM users WHERE id = 1")
 	if err != nil {
@@ -60,6 +73,25 @@ func TestParseSelectWithWhere(t *testing.T) {
 	}
 	if statement.Filter.Column != "id" || statement.Filter.Value != 1 {
 		t.Fatalf("statement.Filter = %#v, want column=id value=1", statement.Filter)
+	}
+}
+
+func TestParseSelectWithOrderByAndLimit(t *testing.T) {
+	statement, err := Parse("SELECT id, name FROM users WHERE id = 1 ORDER BY name DESC LIMIT 5")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if statement.OrderBy == nil {
+		t.Fatalf("statement.OrderBy = nil, want value")
+	}
+	if got, want := statement.OrderBy.Column, "name"; got != want {
+		t.Fatalf("statement.OrderBy.Column = %q, want %q", got, want)
+	}
+	if !statement.OrderBy.Desc {
+		t.Fatalf("statement.OrderBy.Desc = false, want true")
+	}
+	if statement.Limit == nil || *statement.Limit != 5 {
+		t.Fatalf("statement.Limit = %#v, want 5", statement.Limit)
 	}
 }
 

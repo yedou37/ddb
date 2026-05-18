@@ -79,6 +79,9 @@ func TestIsWrite(t *testing.T) {
 	if !isWrite(model.StatementInsert) {
 		t.Fatalf("isWrite(insert) = false, want true")
 	}
+	if !isWrite(model.StatementDropTable) {
+		t.Fatalf("isWrite(drop_table) = false, want true")
+	}
 	if isWrite(model.StatementSelect) {
 		t.Fatalf("isWrite(select) = true, want false")
 	}

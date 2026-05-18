@@ -33,7 +33,7 @@ func TestStoreCRUDFlow(t *testing.T) {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	result, err := store.Select("users", []string{"id", "name"}, &model.Filter{Column: "id", Value: 1})
+	result, err := store.Select("users", []string{"id", "name"}, &model.Filter{Column: "id", Value: 1}, nil, nil)
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
 	}
@@ -52,7 +52,7 @@ func TestStoreCRUDFlow(t *testing.T) {
 		t.Fatalf("removed = %d, want %d", got, want)
 	}
 
-	result, err = store.Select("users", []string{"*"}, nil)
+	result, err = store.Select("users", []string{"*"}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Select() after delete error = %v", err)
 	}
@@ -100,6 +100,70 @@ func TestStoreListTablesSorted(t *testing.T) {
 	}
 	if tables[0] != "a_table" || tables[1] != "z_table" {
 		t.Fatalf("tables = %#v, want sorted order", tables)
+	}
+}
+
+func TestStoreDropTable(t *testing.T) {
+	store := openTestStore(t)
+	defer func() {
+		_ = store.Close()
+	}()
+
+	schema := model.TableSchema{
+		Name: "users",
+		Columns: []model.ColumnDef{
+			{Name: "id", Type: "INT", PrimaryKey: true},
+			{Name: "name", Type: "TEXT"},
+		},
+		PrimaryKey: "id",
+	}
+	if err := store.CreateTable(schema); err != nil {
+		t.Fatalf("CreateTable() error = %v", err)
+	}
+
+	if err := store.DropTable("users"); err != nil {
+		t.Fatalf("DropTable() error = %v", err)
+	}
+	if _, err := store.Schema("users"); err == nil {
+		t.Fatalf("Schema() error = nil, want error after drop")
+	}
+}
+
+func TestStoreSelectOrderByAndLimit(t *testing.T) {
+	store := openTestStore(t)
+	defer func() {
+		_ = store.Close()
+	}()
+
+	if err := store.CreateTable(model.TableSchema{
+		Name: "users",
+		Columns: []model.ColumnDef{
+			{Name: "id", Type: "INT", PrimaryKey: true},
+			{Name: "name", Type: "TEXT"},
+		},
+		PrimaryKey: "id",
+	}); err != nil {
+		t.Fatalf("CreateTable() error = %v", err)
+	}
+	for _, row := range [][]any{{3, "c"}, {1, "a"}, {2, "b"}} {
+		if err := store.Insert("users", row); err != nil {
+			t.Fatalf("Insert(%v) error = %v", row, err)
+		}
+	}
+
+	limit := 2
+	result, err := store.Select("users", []string{"id", "name"}, nil, &model.OrderBy{Column: "id", Desc: true}, &limit)
+	if err != nil {
+		t.Fatalf("Select() error = %v", err)
+	}
+	if got, want := len(result.Rows), 2; got != want {
+		t.Fatalf("len(result.Rows) = %d, want %d", got, want)
+	}
+	if got, want := result.Rows[0][0], 3.0; got != want {
+		t.Fatalf("result.Rows[0][0] = %#v, want %#v", got, want)
+	}
+	if got, want := result.Rows[1][0], 2.0; got != want {
+		t.Fatalf("result.Rows[1][0] = %#v, want %#v", got, want)
 	}
 }
 

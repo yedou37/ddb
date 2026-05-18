@@ -586,7 +586,7 @@ func rejoinNode(baseURL, nodeID, raftAddr, httpAddr string) error {
 }
 
 func isWrite(statementType model.StatementType) bool {
-	return statementType == model.StatementCreateTable || statementType == model.StatementInsert || statementType == model.StatementDelete
+	return statementType == model.StatementCreateTable || statementType == model.StatementDropTable || statementType == model.StatementInsert || statementType == model.StatementDelete
 }
 
 func normalizeURL(value string) string {

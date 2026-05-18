@@ -227,7 +227,7 @@ func (s *QueryService) leaderAddr(ctx context.Context) (string, error) {
 }
 
 func isWrite(statementType model.StatementType) bool {
-	return statementType == model.StatementCreateTable || statementType == model.StatementInsert || statementType == model.StatementDelete
+	return statementType == model.StatementCreateTable || statementType == model.StatementDropTable || statementType == model.StatementInsert || statementType == model.StatementDelete
 }
 
 func (s *QueryService) Join(_ context.Context, request model.JoinRequest) error {

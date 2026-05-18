@@ -15,6 +15,8 @@ func Parse(input string) (model.Statement, error) {
 	switch {
 	case strings.HasPrefix(upper, "CREATE TABLE "):
 		return parseCreateTable(sql)
+	case strings.HasPrefix(upper, "DROP TABLE "):
+		return parseDropTable(sql)
 	case strings.HasPrefix(upper, "INSERT INTO "):
 		return parseInsert(sql)
 	case strings.HasPrefix(upper, "SELECT "):
@@ -26,6 +28,18 @@ func Parse(input string) (model.Statement, error) {
 	default:
 		return model.Statement{}, fmt.Errorf("unsupported SQL: %s", sql)
 	}
+}
+
+func parseDropTable(sql string) (model.Statement, error) {
+	table := strings.TrimSpace(sql[len("DROP TABLE "):])
+	if table == "" {
+		return model.Statement{}, fmt.Errorf("DROP TABLE requires a table name")
+	}
+	return model.Statement{
+		Type:  model.StatementDropTable,
+		Table: table,
+		Raw:   sql,
+	}, nil
 }
 
 func parseCreateTable(sql string) (model.Statement, error) {
@@ -108,6 +122,22 @@ func parseSelect(sql string) (model.Statement, error) {
 	rest := strings.TrimSpace(body[fromIndex+len(" FROM "):])
 	columns := splitCommaAware(columnPart)
 
+	var limit *int
+	restWithoutLimit, parsedLimit, err := splitTrailingClause(rest, " LIMIT ")
+	if err != nil {
+		return model.Statement{}, err
+	}
+	rest = restWithoutLimit
+	limit = parsedLimit
+
+	var orderBy *model.OrderBy
+	restWithoutOrder, parsedOrderBy, err := splitOrderByClause(rest)
+	if err != nil {
+		return model.Statement{}, err
+	}
+	rest = restWithoutOrder
+	orderBy = parsedOrderBy
+
 	table := rest
 	var filter *model.Filter
 	var join *model.JoinClause
@@ -138,8 +168,60 @@ func parseSelect(sql string) (model.Statement, error) {
 		Columns: columns,
 		Filter:  filter,
 		Join:    join,
+		OrderBy: orderBy,
+		Limit:   limit,
 		Raw:     sql,
 	}, nil
+}
+
+func splitTrailingClause(input, marker string) (string, *int, error) {
+	index := strings.LastIndex(strings.ToUpper(input), marker)
+	if index == -1 {
+		return input, nil, nil
+	}
+
+	valueText := strings.TrimSpace(input[index+len(marker):])
+	if valueText == "" {
+		return "", nil, fmt.Errorf("%s requires a value", strings.TrimSpace(marker))
+	}
+	value, err := strconv.Atoi(valueText)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid LIMIT value %q", valueText)
+	}
+	if value < 0 {
+		return "", nil, fmt.Errorf("LIMIT must be non-negative")
+	}
+	return strings.TrimSpace(input[:index]), &value, nil
+}
+
+func splitOrderByClause(input string) (string, *model.OrderBy, error) {
+	index := strings.LastIndex(strings.ToUpper(input), " ORDER BY ")
+	if index == -1 {
+		return input, nil, nil
+	}
+
+	orderText := strings.TrimSpace(input[index+len(" ORDER BY "):])
+	if orderText == "" {
+		return "", nil, fmt.Errorf("ORDER BY requires a column")
+	}
+
+	parts := strings.Fields(orderText)
+	if len(parts) == 0 || len(parts) > 2 {
+		return "", nil, fmt.Errorf("invalid ORDER BY clause")
+	}
+
+	orderBy := &model.OrderBy{Column: parts[0]}
+	if len(parts) == 2 {
+		switch strings.ToUpper(parts[1]) {
+		case "ASC":
+		case "DESC":
+			orderBy.Desc = true
+		default:
+			return "", nil, fmt.Errorf("ORDER BY supports only ASC or DESC")
+		}
+	}
+
+	return strings.TrimSpace(input[:index]), orderBy, nil
 }
 
 func parseJoin(input string) (string, *model.JoinClause, error) {

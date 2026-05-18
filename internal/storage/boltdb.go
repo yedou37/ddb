@@ -57,13 +57,18 @@ func (s *Store) ExecuteStatement(statement model.Statement) (model.QueryResult, 
 			return model.QueryResult{}, err
 		}
 		return model.QueryResult{Type: "create_table", Schema: &schema}, nil
+	case model.StatementDropTable:
+		if err := s.DropTable(statement.Table); err != nil {
+			return model.QueryResult{}, err
+		}
+		return model.QueryResult{Type: "drop_table", RowsAffected: 1}, nil
 	case model.StatementInsert:
 		if err := s.Insert(statement.Table, statement.Values); err != nil {
 			return model.QueryResult{}, err
 		}
 		return model.QueryResult{Type: "insert", RowsAffected: 1}, nil
 	case model.StatementSelect:
-		return s.Select(statement.Table, statement.Columns, statement.Filter)
+		return s.Select(statement.Table, statement.Columns, statement.Filter, statement.OrderBy, statement.Limit)
 	case model.StatementDelete:
 		rows, err := s.Delete(statement.Table, statement.Filter)
 		if err != nil {
@@ -124,6 +129,23 @@ func (s *Store) ListTables() ([]string, error) {
 	return tables, nil
 }
 
+func (s *Store) DropTable(table string) error {
+	if strings.TrimSpace(table) == "" {
+		return errors.New("table name is required")
+	}
+
+	return s.db.Update(func(tx *bolt.Tx) error {
+		schemas := tx.Bucket([]byte(schemasBucket))
+		if schemas.Get([]byte(table)) == nil {
+			return fmt.Errorf("table %s does not exist", table)
+		}
+		if err := tx.DeleteBucket([]byte(table)); err != nil {
+			return err
+		}
+		return schemas.Delete([]byte(table))
+	})
+}
+
 func (s *Store) Schema(table string) (model.TableSchema, error) {
 	return s.loadSchema(table)
 }
@@ -162,7 +184,7 @@ func (s *Store) Insert(table string, values []any) error {
 	})
 }
 
-func (s *Store) Select(table string, columns []string, filter *model.Filter) (model.QueryResult, error) {
+func (s *Store) Select(table string, columns []string, filter *model.Filter, orderBy *model.OrderBy, limit *int) (model.QueryResult, error) {
 	schema, err := s.loadSchema(table)
 	if err != nil {
 		return model.QueryResult{}, err
@@ -178,8 +200,11 @@ func (s *Store) Select(table string, columns []string, filter *model.Filter) (mo
 	if filter != nil && !hasColumn(schema, filter.Column) {
 		return model.QueryResult{}, fmt.Errorf("unknown filter column %s", filter.Column)
 	}
+	if orderBy != nil && !hasColumn(schema, orderBy.Column) {
+		return model.QueryResult{}, fmt.Errorf("unknown ORDER BY column %s", orderBy.Column)
+	}
 
-	result := model.QueryResult{Type: "select", Columns: selectedColumns, Rows: make([][]any, 0)}
+	rows := make([]map[string]any, 0)
 	err = s.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(table))
 		return bucket.ForEach(func(_, value []byte) error {
@@ -190,15 +215,32 @@ func (s *Store) Select(table string, columns []string, filter *model.Filter) (mo
 			if filter != nil && normalizeValue(row[filter.Column]) != normalizeValue(filter.Value) {
 				return nil
 			}
-			selectedRow := make([]any, 0, len(selectedColumns))
-			for _, column := range selectedColumns {
-				selectedRow = append(selectedRow, row[column])
-			}
-			result.Rows = append(result.Rows, selectedRow)
+			rows = append(rows, row)
 			return nil
 		})
 	})
-	return result, err
+	if err != nil {
+		return model.QueryResult{}, err
+	}
+
+	if orderBy != nil {
+		slices.SortFunc(rows, func(a, b map[string]any) int {
+			return compareRowValues(a[orderBy.Column], b[orderBy.Column], orderBy.Desc)
+		})
+	}
+	if limit != nil && *limit < len(rows) {
+		rows = rows[:*limit]
+	}
+
+	result := model.QueryResult{Type: "select", Columns: selectedColumns, Rows: make([][]any, 0, len(rows))}
+	for _, row := range rows {
+		selectedRow := make([]any, 0, len(selectedColumns))
+		for _, column := range selectedColumns {
+			selectedRow = append(selectedRow, row[column])
+		}
+		result.Rows = append(result.Rows, selectedRow)
+	}
+	return result, nil
 }
 
 func (s *Store) Delete(table string, filter *model.Filter) (int, error) {
@@ -288,5 +330,60 @@ func normalizeValue(value any) string {
 		return strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.6f", typed), "000000"), ".")
 	default:
 		return fmt.Sprintf("%v", typed)
+	}
+}
+
+func compareRowValues(left, right any, desc bool) int {
+	result := compareValues(left, right)
+	if desc {
+		return -result
+	}
+	return result
+}
+
+func compareValues(left, right any) int {
+	leftFloat, leftNumeric := numericValue(left)
+	rightFloat, rightNumeric := numericValue(right)
+	if leftNumeric && rightNumeric {
+		switch {
+		case leftFloat < rightFloat:
+			return -1
+		case leftFloat > rightFloat:
+			return 1
+		default:
+			return 0
+		}
+	}
+
+	leftText := normalizeValue(left)
+	rightText := normalizeValue(right)
+	switch {
+	case leftText < rightText:
+		return -1
+	case leftText > rightText:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func numericValue(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case uint32:
+		return float64(typed), true
+	case uint64:
+		return float64(typed), true
+	case float32:
+		return float64(typed), true
+	case float64:
+		return typed, true
+	default:
+		return 0, false
 	}
 }

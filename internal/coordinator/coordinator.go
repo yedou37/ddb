@@ -83,6 +83,8 @@ func (c *Coordinator) ExecuteSQL(ctx context.Context, input string) (model.SQLRe
 	switch statement.Type {
 	case model.StatementCreateTable:
 		return c.broadcastSQL(ctx, input)
+	case model.StatementDropTable:
+		return c.broadcastSQL(ctx, input)
 	case model.StatementInsert:
 		if len(statement.Values) == 0 {
 			return model.SQLResponse{}, ErrRouteKeyRequired
@@ -107,7 +109,7 @@ func (c *Coordinator) executeSelect(ctx context.Context, statement model.Stateme
 		return c.executeJoin(ctx, statement)
 	}
 	if statement.Filter == nil {
-		return c.scatterSelect(ctx, input)
+		return c.scatterSelect(ctx, statement)
 	}
 
 	schema, err := c.schemaForTable(ctx, statement.Table)
@@ -117,7 +119,7 @@ func (c *Coordinator) executeSelect(ctx context.Context, statement model.Stateme
 	if strings.EqualFold(statement.Filter.Column, schema.PrimaryKey) {
 		return c.routeAndExecute(ctx, statement.Table, statement.Filter.Value, input)
 	}
-	return c.scatterSelect(ctx, input)
+	return c.scatterSelect(ctx, statement)
 }
 
 func (c *Coordinator) MigrateShard(ctx context.Context, shardID shardmeta.ShardID, sourceGroup, targetGroup shardmeta.GroupID) error {
@@ -198,7 +200,7 @@ func (c *Coordinator) routeAndExecute(ctx context.Context, table string, primary
 	return c.executeRemoteSQL(ctx, node.HTTPAddr, input)
 }
 
-func (c *Coordinator) scatterSelect(ctx context.Context, input string) (model.SQLResponse, error) {
+func (c *Coordinator) scatterSelect(ctx context.Context, statement model.Statement) (model.SQLResponse, error) {
 	if checker, ok := c.configReader.(ShardLockChecker); ok && checker.HasLockedShards() {
 		return model.SQLResponse{}, ShardMigrationError{ShardID: 0}
 	}
@@ -211,12 +213,13 @@ func (c *Coordinator) scatterSelect(ctx context.Context, input string) (model.SQ
 	var merged model.SQLResponse
 	seenColumns := false
 	rows := make([][]any, 0)
+	remoteSQL := buildSelectSQL(statement, false)
 	for _, groupID := range groupIDs {
 		node, err := c.pickGroupNode(ctx, groupID)
 		if err != nil {
 			return model.SQLResponse{}, err
 		}
-		response, err := c.executeRemoteSQL(ctx, node.HTTPAddr, input)
+		response, err := c.executeRemoteSQL(ctx, node.HTTPAddr, remoteSQL)
 		if err != nil {
 			return model.SQLResponse{}, err
 		}
@@ -230,6 +233,9 @@ func (c *Coordinator) scatterSelect(ctx context.Context, input string) (model.SQ
 		return model.SQLResponse{Success: true, Result: model.QueryResult{Type: "select", Rows: rows}}, nil
 	}
 	merged.Result.Rows = rows
+	if err := applyResultModifiers(&merged.Result, statement.OrderBy, statement.Limit); err != nil {
+		return model.SQLResponse{}, err
+	}
 	return merged, nil
 }
 
@@ -256,13 +262,13 @@ func (c *Coordinator) executeJoin(ctx context.Context, statement model.Statement
 		return model.SQLResponse{}, err
 	}
 
-	leftQuery := fmt.Sprintf("SELECT * FROM %s", statement.Table)
-	rightQuery := fmt.Sprintf("SELECT * FROM %s", statement.Join.Table)
-	leftResponse, err := c.scatterSelect(ctx, leftQuery)
+	leftStatement := model.Statement{Type: model.StatementSelect, Table: statement.Table, Columns: []string{"*"}}
+	rightStatement := model.Statement{Type: model.StatementSelect, Table: statement.Join.Table, Columns: []string{"*"}}
+	leftResponse, err := c.scatterSelect(ctx, leftStatement)
 	if err != nil {
 		return model.SQLResponse{}, err
 	}
-	rightResponse, err := c.scatterSelect(ctx, rightQuery)
+	rightResponse, err := c.scatterSelect(ctx, rightStatement)
 	if err != nil {
 		return model.SQLResponse{}, err
 	}
@@ -277,13 +283,17 @@ func (c *Coordinator) executeJoin(ctx context.Context, statement model.Statement
 	}
 
 	joinedRows := joinRows(leftResponse.Result.Rows, rightResponse.Result.Rows, leftIndex, rightIndex)
+	result := model.QueryResult{
+		Type:    "join",
+		Columns: prefixedColumns(statement.Table, leftSchema.Columns, statement.Join.Table, rightSchema.Columns),
+		Rows:    joinedRows,
+	}
+	if err := applyResultModifiers(&result, statement.OrderBy, statement.Limit); err != nil {
+		return model.SQLResponse{}, err
+	}
 	return model.SQLResponse{
 		Success: true,
-		Result: model.QueryResult{
-			Type:    "join",
-			Columns: prefixedColumns(statement.Table, leftSchema.Columns, statement.Join.Table, rightSchema.Columns),
-			Rows:    joinedRows,
-		},
+		Result:  result,
 	}, nil
 }
 
@@ -539,6 +549,28 @@ func buildInsertSQL(table string, row []any) string {
 	return fmt.Sprintf("INSERT INTO %s VALUES (%s)", table, strings.Join(values, ", "))
 }
 
+func buildSelectSQL(statement model.Statement, includeModifiers bool) string {
+	columns := statement.Columns
+	if len(columns) == 0 {
+		columns = []string{"*"}
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM %s", strings.Join(columns, ", "), statement.Table)
+	if statement.Filter != nil {
+		query += fmt.Sprintf(" WHERE %s = %s", statement.Filter.Column, sqlLiteral(statement.Filter.Value))
+	}
+	if includeModifiers && statement.OrderBy != nil {
+		query += " ORDER BY " + statement.OrderBy.Column
+		if statement.OrderBy.Desc {
+			query += " DESC"
+		}
+	}
+	if includeModifiers && statement.Limit != nil {
+		query += fmt.Sprintf(" LIMIT %d", *statement.Limit)
+	}
+	return query
+}
+
 func sqlLiteral(value any) string {
 	switch typed := value.(type) {
 	case string:
@@ -628,5 +660,87 @@ func normalizeJoinValue(value any) string {
 		return strconv.FormatUint(uint64(typed), 10)
 	default:
 		return fmt.Sprintf("%v", typed)
+	}
+}
+
+func applyResultModifiers(result *model.QueryResult, orderBy *model.OrderBy, limit *int) error {
+	if result == nil {
+		return nil
+	}
+	if orderBy != nil {
+		index, err := resolveOrderByIndex(result.Columns, orderBy.Column)
+		if err != nil {
+			return err
+		}
+		sort.SliceStable(result.Rows, func(i, j int) bool {
+			comparison := compareResultValues(result.Rows[i], result.Rows[j], index)
+			if orderBy.Desc {
+				return comparison > 0
+			}
+			return comparison < 0
+		})
+	}
+	if limit != nil && *limit < len(result.Rows) {
+		result.Rows = result.Rows[:*limit]
+	}
+	return nil
+}
+
+func resolveOrderByIndex(columns []string, orderBy string) (int, error) {
+	for index, column := range columns {
+		if strings.EqualFold(column, orderBy) {
+			return index, nil
+		}
+	}
+	return -1, fmt.Errorf("ORDER BY column %s must be present in the result set", orderBy)
+}
+
+func compareResultValues(leftRow, rightRow []any, index int) int {
+	if index >= len(leftRow) || index >= len(rightRow) {
+		return 0
+	}
+	leftFloat, leftNumeric := numericResultValue(leftRow[index])
+	rightFloat, rightNumeric := numericResultValue(rightRow[index])
+	if leftNumeric && rightNumeric {
+		switch {
+		case leftFloat < rightFloat:
+			return -1
+		case leftFloat > rightFloat:
+			return 1
+		default:
+			return 0
+		}
+	}
+
+	leftText := normalizeJoinValue(leftRow[index])
+	rightText := normalizeJoinValue(rightRow[index])
+	switch {
+	case leftText < rightText:
+		return -1
+	case leftText > rightText:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func numericResultValue(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case uint32:
+		return float64(typed), true
+	case uint64:
+		return float64(typed), true
+	case float32:
+		return float64(typed), true
+	case float64:
+		return typed, true
+	default:
+		return 0, false
 	}
 }

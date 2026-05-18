@@ -37,10 +37,16 @@ type JoinClause struct {
 	Right ColumnRef `json:"right"`
 }
 
+type OrderBy struct {
+	Column string `json:"column"`
+	Desc   bool   `json:"desc"`
+}
+
 type StatementType string
 
 const (
 	StatementCreateTable StatementType = "create_table"
+	StatementDropTable   StatementType = "drop_table"
 	StatementInsert      StatementType = "insert"
 	StatementSelect      StatementType = "select"
 	StatementDelete      StatementType = "delete"
@@ -55,6 +61,8 @@ type Statement struct {
 	Values      []any
 	Filter      *Filter
 	Join        *JoinClause
+	OrderBy     *OrderBy
+	Limit       *int
 	Raw         string
 }
 

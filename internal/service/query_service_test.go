@@ -158,7 +158,7 @@ func TestLeaderRedirectErrorAndIsWrite(t *testing.T) {
 		t.Fatalf("LeaderRedirectError(leader).Error() = %q, want %q", got, want)
 	}
 
-	if !isWrite(model.StatementCreateTable) || !isWrite(model.StatementInsert) || !isWrite(model.StatementDelete) {
+	if !isWrite(model.StatementCreateTable) || !isWrite(model.StatementDropTable) || !isWrite(model.StatementInsert) || !isWrite(model.StatementDelete) {
 		t.Fatalf("isWrite() returned false for a write statement")
 	}
 	if isWrite(model.StatementSelect) || isWrite(model.StatementShowTables) {
