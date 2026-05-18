@@ -110,31 +110,88 @@ function Resolve-VolumeMounts(
     return $out
 }
 
+function Resolve-HostPortAddress(
+    [string]$Address,
+    [string]$Host,
+    [object]$Port,
+    [string]$FieldName
+) {
+    if (-not [string]::IsNullOrWhiteSpace($Address)) {
+        return $Address
+    }
+    if ([string]::IsNullOrWhiteSpace($Host) -or $null -eq $Port -or [int]$Port -le 0) {
+        return ""
+    }
+    return ("{0}:{1}" -f $Host.Trim(), [int]$Port)
+}
+
+function Resolve-HealthURL(
+    [string]$HealthURL,
+    [string]$HTTPAddr
+) {
+    if (-not [string]::IsNullOrWhiteSpace($HealthURL)) {
+        return $HealthURL
+    }
+    if ([string]::IsNullOrWhiteSpace($HTTPAddr)) {
+        return ""
+    }
+    if ($HTTPAddr.StartsWith("http://") -or $HTTPAddr.StartsWith("https://")) {
+        return ($HTTPAddr.TrimEnd("/") + "/health")
+    }
+    return ("http://{0}/health" -f $HTTPAddr)
+}
+
 function Resolve-Target(
     [object]$Target,
     [string]$ProjectRoot,
-    [string]$ConfigDir
+    [string]$ConfigDir,
+    [object]$Defaults
 ) {
+    $targetName = [string]$Target.name
+    $localIP = [string]$Defaults.local_ip
+    $dataRoot = [string]$Defaults.data_root
+    $etcdHost = [string]$Defaults.etcd_host
+    $etcdPort = [int]$Defaults.etcd_port
+    $defaultJoinHost = [string]$Defaults.default_join_host
+
+    $httpAddr = Resolve-HostPortAddress ([string]$Target.http_addr) $localIP $Target.http_port "http_addr"
+    $raftAddr = Resolve-HostPortAddress ([string]$Target.raft_addr) $localIP $Target.raft_port "raft_addr"
+    $joinHost = [string]$Target.join_host
+    if ([string]::IsNullOrWhiteSpace($joinHost)) {
+        $joinHost = $defaultJoinHost
+    }
+    $joinAddr = Resolve-HostPortAddress ([string]$Target.join_addr) $joinHost $Target.join_port "join_addr"
+    $etcdAddr = Resolve-HostPortAddress ([string]$Target.etcd) $etcdHost $etcdPort "etcd"
+
+    $raftDirInput = [string]$Target.raft_dir
+    if ([string]::IsNullOrWhiteSpace($raftDirInput) -and -not [string]::IsNullOrWhiteSpace($targetName)) {
+        $raftDirInput = Join-Path (Join-Path $dataRoot $targetName) "raft"
+    }
+    $dbPathInput = [string]$Target.db_path
+    if ([string]::IsNullOrWhiteSpace($dbPathInput) -and -not [string]::IsNullOrWhiteSpace($targetName)) {
+        $dbPathInput = Join-Path (Join-Path $dataRoot $targetName) "data.db"
+    }
+
     $resolved = [pscustomobject]@{
-        name           = [string]$Target.name
+        name           = $targetName
         runner         = [string]$Target.runner
-        health_url     = [string]$Target.health_url
-        node_id        = [string]$Target.node_id
+        health_url     = Resolve-HealthURL ([string]$Target.health_url) $httpAddr
+        node_id        = $(if (-not [string]::IsNullOrWhiteSpace([string]$Target.node_id)) { [string]$Target.node_id } else { $targetName })
         role           = [string]$Target.role
         group_id       = [string]$Target.group_id
-        http_addr      = [string]$Target.http_addr
-        raft_addr      = [string]$Target.raft_addr
+        http_addr      = $httpAddr
+        raft_addr      = $raftAddr
         bootstrap      = [bool]$Target.bootstrap
         rejoin         = [bool]$Target.rejoin
-        join_addr      = [string]$Target.join_addr
-        etcd           = [string]$Target.etcd
+        join_addr      = $joinAddr
+        etcd           = $etcdAddr
         container_name = [string]$Target.container_name
         image          = [string]$Target.image
         ports          = @([string[]]$Target.ports)
         command        = @([string[]]$Target.command)
         volumes        = Resolve-VolumeMounts @($Target.volumes) $ProjectRoot $ConfigDir
-        raft_dir       = Resolve-AbsolutePath ([string]$Target.raft_dir) $ProjectRoot $ConfigDir
-        db_path        = Resolve-AbsolutePath ([string]$Target.db_path) $ProjectRoot $ConfigDir
+        raft_dir       = Resolve-AbsolutePath $raftDirInput $ProjectRoot $ConfigDir
+        db_path        = Resolve-AbsolutePath $dbPathInput $ProjectRoot $ConfigDir
     }
 
     if ([string]::IsNullOrWhiteSpace($resolved.name)) {
@@ -142,6 +199,20 @@ function Resolve-Target(
     }
     if ([string]::IsNullOrWhiteSpace($resolved.runner)) {
         Fail "target '$($resolved.name)' requires runner"
+    }
+    if ($resolved.runner -eq "ddb-process") {
+        if ([string]::IsNullOrWhiteSpace($resolved.http_addr)) {
+            Fail "ddb-process target '$($resolved.name)' requires http_addr or local_ip + http_port"
+        }
+        if ([string]::IsNullOrWhiteSpace($resolved.raft_addr)) {
+            Fail "ddb-process target '$($resolved.name)' requires raft_addr or local_ip + raft_port"
+        }
+        if ([string]::IsNullOrWhiteSpace($resolved.raft_dir)) {
+            Fail "ddb-process target '$($resolved.name)' requires raft_dir or a usable data_root"
+        }
+        if ([string]::IsNullOrWhiteSpace($resolved.db_path)) {
+            Fail "ddb-process target '$($resolved.name)' requires db_path or a usable data_root"
+        }
     }
 
     return $resolved
@@ -162,6 +233,10 @@ function Load-ConfigContext([string]$ConfigPath) {
     }
 
     $projectRoot = Resolve-AbsolutePath $projectRootInput $configDir $configDir
+    $dataRoot = Resolve-AbsolutePath ([string]$cfg.data_root) $projectRoot $configDir
+    if ([string]::IsNullOrWhiteSpace($dataRoot)) {
+        $dataRoot = Join-Path $projectRoot ".ddb-data"
+    }
     $logDir = Resolve-AbsolutePath ([string]$cfg.log_dir) $projectRoot $configDir
     if ([string]::IsNullOrWhiteSpace($logDir)) {
         $logDir = Join-Path $projectRoot ".ddb-logs"
@@ -177,6 +252,14 @@ function Load-ConfigContext([string]$ConfigPath) {
         $machineName = "default"
     }
 
+    $localIP = [string]$cfg.local_ip
+    $etcdHost = [string]$cfg.etcd_host
+    $etcdPort = 2379
+    if ($null -ne $cfg.etcd_port -and [int]$cfg.etcd_port -gt 0) {
+        $etcdPort = [int]$cfg.etcd_port
+    }
+    $defaultJoinHost = [string]$cfg.default_join_host
+
     $serverBinary = Resolve-AbsolutePath ([string]$cfg.server_binary) $projectRoot $configDir
     if ([string]::IsNullOrWhiteSpace($serverBinary)) {
         $serverBinary = Join-Path $projectRoot "bin\ddb-server.exe"
@@ -188,8 +271,15 @@ function Load-ConfigContext([string]$ConfigPath) {
     }
 
     $targets = @()
+    $defaults = [pscustomobject]@{
+        local_ip          = $localIP
+        data_root         = $dataRoot
+        etcd_host         = $etcdHost
+        etcd_port         = $etcdPort
+        default_join_host = $defaultJoinHost
+    }
     foreach ($item in @($cfg.targets)) {
-        $targets += Resolve-Target $item $projectRoot $configDir
+        $targets += Resolve-Target $item $projectRoot $configDir $defaults
     }
     if ($targets.Count -eq 0) {
         Fail "config requires at least one target"
@@ -203,6 +293,11 @@ function Load-ConfigContext([string]$ConfigPath) {
         config_dir           = $configDir
         machine_name         = $machineName
         project_root         = $projectRoot
+        data_root            = $dataRoot
+        local_ip             = $localIP
+        etcd_host            = $etcdHost
+        etcd_port            = $etcdPort
+        default_join_host    = $defaultJoinHost
         log_dir              = $logDir
         state_dir            = $stateDir
         state_file           = Join-Path $stateDir ($machineName + ".json")

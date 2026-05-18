@@ -202,6 +202,76 @@ func TestRunControlGroupsAndMoveShard(t *testing.T) {
 	}
 }
 
+func TestRunInspect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sql" {
+			t.Fatalf("r.URL.Path = %q, want /sql", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("r.Method = %q, want POST", r.Method)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("io.ReadAll() error = %v", err)
+		}
+		if !strings.Contains(string(body), `"sql":"SELECT * FROM users WHERE id = 1"`) {
+			t.Fatalf("request body = %q, want select sql", string(body))
+		}
+		writeJSON(t, w, model.SQLResponse{
+			Success: true,
+			Result:  model.QueryResult{Type: "select", Rows: [][]any{{1, "alice"}}},
+		})
+	}))
+	defer server.Close()
+
+	oldStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	err = runInspect(config.CLIConfig{NodeURL: server.URL}, "SELECT * FROM users WHERE id = 1")
+	_ = writer.Close()
+	if err != nil {
+		t.Fatalf("runInspect() error = %v", err)
+	}
+
+	data, _ := io.ReadAll(reader)
+	if !strings.Contains(string(data), `"alice"`) {
+		t.Fatalf("runInspect() output = %q, want alice", string(data))
+	}
+}
+
+func TestRunInspectRejectsWrite(t *testing.T) {
+	err := runInspect(config.CLIConfig{NodeURL: "http://127.0.0.1:18080"}, "INSERT INTO users VALUES (1, 'alice')")
+	if err == nil {
+		t.Fatalf("runInspect() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("runInspect() error = %v, want read-only", err)
+	}
+}
+
+func TestParseInteractiveCommandInspect(t *testing.T) {
+	args, err := parseInteractiveCommand("inspect SELECT * FROM users WHERE id = 1")
+	if err != nil {
+		t.Fatalf("parseInteractiveCommand() error = %v", err)
+	}
+	if got, want := len(args), 2; got != want {
+		t.Fatalf("len(args) = %d, want %d", got, want)
+	}
+	if got, want := args[0], "inspect"; got != want {
+		t.Fatalf("args[0] = %q, want %q", got, want)
+	}
+	if got, want := args[1], "SELECT * FROM users WHERE id = 1"; got != want {
+		t.Fatalf("args[1] = %q, want %q", got, want)
+	}
+}
+
 func writeJSON(t *testing.T, w http.ResponseWriter, payload any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")

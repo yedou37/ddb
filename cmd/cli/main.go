@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -21,10 +22,12 @@ import (
 
 var httpClient = &http.Client{Timeout: 5 * time.Second}
 
+const usageText = "usage: cli [--etcd=host:2379] [--node-url=http://host:8080] sql \"SELECT * FROM users\" | inspect \"SELECT * FROM users\" | cluster status|leader|members|tables|remove|rejoin | control config|groups|shards|move-shard|rebalance | interact"
+
 func main() {
 	cfg, args := config.ParseCLIConfig()
 	if len(args) == 0 {
-		log.Fatal("usage: cli [--etcd=host:2379] [--node-url=http://host:8080] sql \"SELECT * FROM users\" | cluster status|leader|members|tables | control config|groups|shards|move-shard|rebalance")
+		log.Fatal(usageText)
 	}
 
 	discoveryClient, err := discovery.New(cfg.ETCDEndpoints)
@@ -37,31 +40,145 @@ func main() {
 		}()
 	}
 
+	if err := dispatchCommand(context.Background(), cfg, discoveryClient, args); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func dispatchCommand(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf(usageText)
+	}
+
 	switch args[0] {
 	case "sql":
 		if len(args) < 2 {
-			log.Fatal("sql command requires a statement")
+			return fmt.Errorf("sql command requires a statement")
 		}
-		if err := runSQL(context.Background(), cfg, discoveryClient, args[1]); err != nil {
-			log.Fatal(err)
+		return runSQL(ctx, cfg, discoveryClient, args[1])
+	case "inspect":
+		if len(args) < 2 {
+			return fmt.Errorf("inspect command requires a statement")
 		}
+		return runInspect(cfg, args[1])
 	case "cluster":
 		if len(args) < 2 {
-			log.Fatal("cluster command requires a subcommand")
+			return fmt.Errorf("cluster command requires a subcommand")
 		}
-		if err := runCluster(context.Background(), cfg, discoveryClient, args[1:]); err != nil {
-			log.Fatal(err)
-		}
+		return runCluster(ctx, cfg, discoveryClient, args[1:])
 	case "control":
 		if len(args) < 2 {
-			log.Fatal("control command requires a subcommand")
+			return fmt.Errorf("control command requires a subcommand")
 		}
-		if err := runControl(context.Background(), cfg, discoveryClient, args[1:]); err != nil {
-			log.Fatal(err)
-		}
+		return runControl(ctx, cfg, discoveryClient, args[1:])
+	case "interact":
+		return runInteractive(ctx, cfg, discoveryClient)
 	default:
-		log.Fatalf("unknown command %s", args[0])
+		return fmt.Errorf("unknown command %s", args[0])
 	}
+}
+
+func runInteractive(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client) error {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Fprintln(os.Stdout, "ddb interactive mode")
+	if cfg.NodeURL != "" {
+		fmt.Fprintf(os.Stdout, "target: %s\n", normalizeURL(cfg.NodeURL))
+	} else if len(cfg.ETCDEndpoints) > 0 {
+		fmt.Fprintf(os.Stdout, "discovery: %s\n", strings.Join(cfg.ETCDEndpoints, ","))
+	} else {
+		fmt.Fprintln(os.Stdout, "warning: set --node-url or --etcd before running interact")
+	}
+	fmt.Fprintln(os.Stdout, "enter commands like `sql SELECT * FROM users WHERE id = 1`")
+	fmt.Fprintln(os.Stdout, "type `help` for usage, `exit` or `quit` to leave")
+
+	for {
+		fmt.Fprint(os.Stdout, "ddb> ")
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if err == io.EOF {
+				fmt.Fprintln(os.Stdout)
+				return nil
+			}
+			continue
+		}
+
+		switch strings.ToLower(line) {
+		case "exit", "quit":
+			return nil
+		case "help":
+			fmt.Fprintln(os.Stdout, usageText)
+			fmt.Fprintln(os.Stdout, "interactive examples:")
+			fmt.Fprintln(os.Stdout, "  sql SELECT * FROM users WHERE id = 1")
+			fmt.Fprintln(os.Stdout, "  inspect SELECT * FROM users WHERE id = 1")
+			fmt.Fprintln(os.Stdout, "  control groups")
+			fmt.Fprintln(os.Stdout, "  control move-shard 6 g3")
+			fmt.Fprintln(os.Stdout, "  cluster status")
+		default:
+			commandArgs, parseErr := parseInteractiveCommand(line)
+			if parseErr != nil {
+				fmt.Fprintf(os.Stdout, "error: %v\n", parseErr)
+			} else if runErr := dispatchCommand(ctx, cfg, discoveryClient, commandArgs); runErr != nil {
+				fmt.Fprintf(os.Stdout, "error: %v\n", runErr)
+			}
+		}
+
+		if err == io.EOF {
+			fmt.Fprintln(os.Stdout)
+			return nil
+		}
+	}
+}
+
+func parseInteractiveCommand(line string) ([]string, error) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return nil, fmt.Errorf("empty command")
+	}
+
+	if sqlText, ok := strings.CutPrefix(trimmed, "sql "); ok {
+		statement := trimOptionalQuotes(strings.TrimSpace(sqlText))
+		if statement == "" {
+			return nil, fmt.Errorf("sql command requires a statement")
+		}
+		return []string{"sql", statement}, nil
+	}
+	if trimmed == "sql" {
+		return nil, fmt.Errorf("sql command requires a statement")
+	}
+	if inspectText, ok := strings.CutPrefix(trimmed, "inspect "); ok {
+		statement := trimOptionalQuotes(strings.TrimSpace(inspectText))
+		if statement == "" {
+			return nil, fmt.Errorf("inspect command requires a statement")
+		}
+		return []string{"inspect", statement}, nil
+	}
+	if trimmed == "inspect" {
+		return nil, fmt.Errorf("inspect command requires a statement")
+	}
+
+	args := strings.Fields(trimmed)
+	if len(args) == 0 {
+		return nil, fmt.Errorf("empty command")
+	}
+	if args[0] == "interact" {
+		return nil, fmt.Errorf("already in interactive mode")
+	}
+	return args, nil
+}
+
+func trimOptionalQuotes(value string) string {
+	if len(value) >= 2 {
+		if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
+			return strings.TrimSpace(value[1 : len(value)-1])
+		}
+	}
+	return value
 }
 
 func runSQL(ctx context.Context, cfg config.CLIConfig, discoveryClient *discovery.Client, statement string) error {
@@ -97,6 +214,26 @@ func runSQL(ctx context.Context, cfg config.CLIConfig, discoveryClient *discover
 		return err
 	}
 
+	return printJSON(response)
+}
+
+func runInspect(cfg config.CLIConfig, statement string) error {
+	if strings.TrimSpace(cfg.NodeURL) == "" {
+		return fmt.Errorf("inspect requires --node-url pointing to a specific node")
+	}
+
+	parsed, err := sqlparser.Parse(statement)
+	if err != nil {
+		return err
+	}
+	if parsed.Type != model.StatementSelect && parsed.Type != model.StatementShowTables {
+		return fmt.Errorf("inspect only supports read-only statements")
+	}
+
+	response, err := executeSQL(cfg.NodeURL, statement)
+	if err != nil {
+		return err
+	}
 	return printJSON(response)
 }
 

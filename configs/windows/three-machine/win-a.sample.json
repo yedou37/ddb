@@ -1,6 +1,8 @@
 {
   "machine_name": "win-a",
   "project_root": "C:\\ddb",
+  "local_ip": "192.168.1.10",
+  "etcd_host": "192.168.1.10",
   "log_dir": ".ddb-logs\\win-a",
   "state_dir": ".ddb-state",
   "build_server_binary": true,
@@ -8,44 +10,32 @@
     {
       "name": "g1-n1",
       "runner": "ddb-process",
-      "node_id": "g1-n1",
       "role": "shard",
       "group_id": "g1",
-      "http_addr": "192.168.1.10:21080",
-      "raft_addr": "192.168.1.10:22080",
-      "raft_dir": "C:\\ddb-demo\\g1-n1\\raft",
-      "db_path": "C:\\ddb-demo\\g1-n1\\data.db",
+      "http_port": 21080,
+      "raft_port": 22080,
       "bootstrap": true,
-      "etcd": "192.168.1.10:2379",
-      "health_url": "http://192.168.1.10:21080/health"
+      "etcd_port": 2379
     },
     {
       "name": "g2-n1",
       "runner": "ddb-process",
-      "node_id": "g2-n1",
       "role": "shard",
       "group_id": "g2",
-      "http_addr": "192.168.1.10:21081",
-      "raft_addr": "192.168.1.10:22081",
-      "raft_dir": "C:\\ddb-demo\\g2-n1\\raft",
-      "db_path": "C:\\ddb-demo\\g2-n1\\data.db",
+      "http_port": 21081,
+      "raft_port": 22081,
       "bootstrap": true,
-      "etcd": "192.168.1.10:2379",
-      "health_url": "http://192.168.1.10:21081/health"
+      "etcd_port": 2379
     },
     {
       "name": "g3-n1",
       "runner": "ddb-process",
-      "node_id": "g3-n1",
       "role": "shard",
       "group_id": "g3",
-      "http_addr": "192.168.1.10:21082",
-      "raft_addr": "192.168.1.10:22082",
-      "raft_dir": "C:\\ddb-demo\\g3-n1\\raft",
-      "db_path": "C:\\ddb-demo\\g3-n1\\data.db",
+      "http_port": 21082,
+      "raft_port": 22082,
       "bootstrap": true,
-      "etcd": "192.168.1.10:2379",
-      "health_url": "http://192.168.1.10:21082/health"
+      "etcd_port": 2379
     }
   ]
 }

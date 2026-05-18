@@ -1,0 +1,22 @@
+{
+  "machine_name": "win-a-control",
+  "project_root": "C:\\ddb",
+  "local_ip": "192.168.1.10",
+  "log_dir": ".ddb-logs\\control-plane",
+  "state_dir": ".ddb-state",
+  "build_server_binary": true,
+  "etcd": {
+    "runner": "docker",
+    "container_name": "ddb-etcd",
+    "port": 2379,
+    "data_dir": ".ddb-control\\etcd",
+    "image": "quay.io/coreos/etcd:v3.5.9"
+  },
+  "apiserver": {
+    "node_id": "api-1",
+    "group_id": "control",
+    "http_port": 18100,
+    "raft_port": 30100,
+    "bootstrap": false
+  }
+}

@@ -80,12 +80,20 @@ copy .\configs\windows\three-machine\win-c.sample.json .\configs\windows\local.j
 然后分别修改：
 
 - `project_root`
-- 各机器真实 IP
-- `raft_dir`
-- `db_path`
+- `local_ip`
+- `etcd_host`
+- 如果当前机器不是 bootstrap 所在机器，再写 `default_join_host`
 - Docker target 的 volume 路径
-- `etcd` 地址
-- `join_addr`
+- 节点端口
+
+现在的新样例配置里，`raft_dir` 和 `db_path` 不需要手写。
+
+脚本会自动把数据目录放到：
+
+- `project_root\.ddb-data\<node-name>\raft`
+- `project_root\.ddb-data\<node-name>\data.db`
+
+如果这些目录不存在，脚本会在启动前自动创建。
 
 ## 3. 基本命令
 
@@ -261,6 +269,11 @@ exit
 
 - `machine_name`: 当前机器名字，用于状态文件命名
 - `project_root`: 仓库根目录
+- `local_ip`: 当前机器对外通告使用的 IP
+- `data_root`: 可选，节点数据根目录；默认是 `project_root\.ddb-data`
+- `etcd_host`: etcd 所在机器 IP 或主机名
+- `etcd_port`: 可选，默认 `2379`
+- `default_join_host`: 可选，非 bootstrap 节点默认 join 到的主机
 - `log_dir`: 日志目录，可写相对路径
 - `state_dir`: 状态目录，可写相对路径
 - `build_server_binary`: 如果本地没有 `bin\ddb-server.exe`，是否自动 `go build`
@@ -270,17 +283,22 @@ exit
 
 - `name`
 - `runner`: 固定写 `ddb-process`
-- `node_id`
+- `node_id`: 可选，默认等于 `name`
 - `role`
 - `group_id`
-- `http_addr`
-- `raft_addr`
-- `raft_dir`
-- `db_path`
+- `http_port`: 推荐只写端口，脚本会结合顶层 `local_ip` 自动生成 `http_addr`
+- `raft_port`: 推荐只写端口，脚本会结合顶层 `local_ip` 自动生成 `raft_addr`
 - `bootstrap`
 - `join_addr`
-- `etcd`
-- `health_url`
+- `join_port`: 推荐用于替代 `join_addr`，脚本会结合 `default_join_host` 或 `join_host` 自动生成
+- `join_host`: 可选，覆盖顶层 `default_join_host`
+- `etcd`: 可选，保留兼容旧写法
+- `health_url`: 可选；如果不写，脚本会自动用 `http_addr` 推导 `http://<http_addr>/health`
+
+兼容说明：
+
+- 旧字段 `http_addr` / `raft_addr` / `raft_dir` / `db_path` / `join_addr` 仍然可用
+- 新写法更推荐只写 `local_ip + 端口 + 顶层默认值`
 
 `docker` 类型目标常用字段：
 
