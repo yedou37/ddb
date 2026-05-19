@@ -1,0 +1,22 @@
+{
+  "machine_name": "mac-control",
+  "project_root": "/Users/bytedance/dbd",
+  "local_ip": "127.0.0.1",
+  "log_dir": ".ddb-logs/control-plane",
+  "state_dir": ".ddb-state",
+  "build_server_binary": true,
+  "etcd": {
+    "runner": "docker",
+    "container_name": "ddb-etcd",
+    "port": 2379,
+    "data_dir": ".ddb-control/etcd",
+    "image": "quay.io/coreos/etcd:v3.5.9"
+  },
+  "apiserver": {
+    "node_id": "api-1",
+    "group_id": "control",
+    "http_port": 18100,
+    "raft_port": 30100,
+    "bootstrap": false
+  }
+}
