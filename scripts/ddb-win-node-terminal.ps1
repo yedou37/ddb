@@ -54,17 +54,30 @@ function Resolve-LogPathFromConfig {
     return (Join-Path (Join-Path $projectRoot $logDir) ($Name + ".log"))
 }
 
+function Resolve-ErrLogPathFromConfig {
+    $logPath = Resolve-LogPathFromConfig
+    return ($logPath -replace '\.log$', '.err.log')
+}
+
 function Follow-Log {
     $logPath = Resolve-LogPathFromConfig
-    if (-not (Test-Path $logPath)) {
+    $errPath = Resolve-ErrLogPathFromConfig
+    $paths = @()
+    if (Test-Path $logPath) {
+        $paths += $logPath
+    }
+    if (Test-Path $errPath) {
+        $paths += $errPath
+    }
+    if ($paths.Count -eq 0) {
         Write-Warning "log not found: $logPath"
         return
     }
 
     Write-Host ""
-    Write-Host "Following log: $logPath"
+    Write-Host ("Following logs: " + ($paths -join ", "))
     Write-Host "Press Ctrl+C to stop following and return to command prompt."
-    Get-Content -Path $logPath -Tail 30 -Wait
+    Get-Content -Path $paths -Tail 30 -Wait
 }
 
 Write-Host "Node terminal for: $Name"

@@ -485,6 +485,19 @@ function Get-DockerStatus([string]$ContainerName) {
     return (($status | Select-Object -First 1) -as [string]).Trim()
 }
 
+function Test-DockerDaemonAvailable() {
+    if (-not (Test-Command docker)) {
+        return $false
+    }
+    try {
+        & docker info *> $null
+        return ($LASTEXITCODE -eq 0)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Start-Etcd([object]$Context, [hashtable]$State) {
     $cfg = $Context.etcd
     if ($cfg.runner -eq "docker") {
@@ -721,12 +734,46 @@ function Show-Status([object]$Context, [hashtable]$State) {
 }
 
 function Validate-Config([object]$Context) {
+    if (-not (Test-Path $Context.project_root)) {
+        Fail "project_root does not exist: $($Context.project_root)"
+    }
+
+    if ($Context.build_server_binary) {
+        Require-Command go
+    }
+    elseif (-not (Test-Path $Context.server_binary)) {
+        Fail "ddb-server.exe not found: $($Context.server_binary)"
+    }
+
+    if ($Context.etcd.runner -eq "docker") {
+        Require-Command docker
+        if (-not (Test-DockerDaemonAvailable)) {
+            Fail "docker is installed but daemon is not available; start Docker Desktop first"
+        }
+    }
+    else {
+        if (-not (Test-Path $Context.etcd.binary_path)) {
+            Fail "native etcd binary not found: $($Context.etcd.binary_path)"
+        }
+    }
+
     Write-Host ""
     Write-Host "Config:   $($Context.config_path)"
     Write-Host "Root:     $($Context.project_root)"
     Write-Host "Local IP: $($Context.local_ip)"
     Write-Host "ETCD:     $($Context.etcd.runner) -> $($Context.etcd.health_url)"
     Write-Host "API:      $($Context.apiserver.http_addr) -> $($Context.apiserver.health_url)"
+    Write-Host "Server:   $($Context.server_binary)"
+    Write-Host ""
+    Write-Host "Checks:"
+    Write-Host "  - project_root exists"
+    Write-Host "  - go available or server binary present"
+    if ($Context.etcd.runner -eq "docker") {
+        Write-Host "  - docker daemon reachable"
+    }
+    else {
+        Write-Host "  - native etcd binary present"
+    }
     Write-Host ""
 }
 

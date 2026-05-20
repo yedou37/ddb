@@ -1,6 +1,6 @@
 param(
     [string]$Config = ".\configs\windows\three-machine\win-a.sample.json",
-    [ValidateSet("list", "status", "start", "stop", "restart", "start-all", "stop-all", "restart-all", "open-terminal", "start-all-terminals", "tail-log", "run-foreground")]
+    [ValidateSet("validate", "list", "status", "start", "stop", "restart", "start-all", "stop-all", "restart-all", "open-terminal", "start-all-terminals", "tail-log", "run-foreground")]
     [string]$Action = "status",
     [string]$Name = ""
 )
@@ -563,6 +563,19 @@ function Get-OwningProcessesByPort([int]$Port) {
     }
 }
 
+function Test-DockerDaemonAvailable() {
+    if (-not (Test-Command docker)) {
+        return $false
+    }
+    try {
+        & docker info *> $null
+        return ($LASTEXITCODE -eq 0)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Wait-ForProcessExit([int]$ProcessId, [int]$Attempts = 40, [int]$SleepMilliseconds = 250) {
     if ($ProcessId -le 0) {
         return
@@ -730,6 +743,15 @@ function Get-TargetLogPath(
     return (Join-Path $Context.log_dir ($Target.name + ".log"))
 }
 
+function Get-TargetErrLogPath(
+    [object]$Context,
+    [hashtable]$State,
+    [object]$Target
+) {
+    $logPath = Get-TargetLogPath $Context $State $Target
+    return ($logPath -replace '\.log$', '.err.log')
+}
+
 function Show-TargetLogTail(
     [object]$Context,
     [hashtable]$State,
@@ -737,14 +759,26 @@ function Show-TargetLogTail(
     [int]$Tail = 40
 ) {
     $logPath = Get-TargetLogPath $Context $State $Target
-    if (-not (Test-Path $logPath)) {
-        Write-WarnLine "log not found: $logPath"
-        return
+    $errPath = Get-TargetErrLogPath $Context $State $Target
+    $hasOutput = $false
+
+    if (Test-Path $logPath) {
+        Write-Host ""
+        Write-Host "== stdout log: $($Target.name) =="
+        Get-Content -Path $logPath -Tail $Tail
+        $hasOutput = $true
     }
 
-    Write-Host ""
-    Write-Host "== log: $($Target.name) =="
-    Get-Content -Path $logPath -Tail $Tail
+    if (Test-Path $errPath) {
+        Write-Host ""
+        Write-Host "== stderr log: $($Target.name) =="
+        Get-Content -Path $errPath -Tail $Tail
+        $hasOutput = $true
+    }
+
+    if (-not $hasOutput) {
+        Write-WarnLine "log not found: $logPath"
+    }
 }
 
 function Open-TargetTerminal(
@@ -845,6 +879,22 @@ function Get-ProcessStartArgs([object]$Target) {
     return $args
 }
 
+function Convert-ArgumentListToCommandLine([string[]]$ArgumentList) {
+    $quoted = foreach ($arg in @($ArgumentList)) {
+        if ($null -eq $arg) {
+            continue
+        }
+        $text = [string]$arg
+        if ($text -match '[\s"]') {
+            '"' + ($text -replace '"', '\"') + '"'
+        }
+        else {
+            $text
+        }
+    }
+    return ($quoted -join ' ')
+}
+
 function Run-DDBProcessForeground(
     [object]$Context,
     [hashtable]$State,
@@ -857,18 +907,46 @@ function Run-DDBProcessForeground(
 
     $args = Get-ProcessStartArgs $Target
     $logPath = Join-Path $Context.log_dir ($Target.name + ".log")
+    $errPath = ($logPath -replace '\.log$', '.err.log')
+    $stdoutSourceId = "ddb-stdout-" + [guid]::NewGuid().ToString("N")
+    $stderrSourceId = "ddb-stderr-" + [guid]::NewGuid().ToString("N")
 
     Write-Host ""
     Write-Host "== starting foreground node: $($Target.name) =="
     Write-Host "Press Ctrl+C in this window to stop the node."
     Write-Host ""
 
-    $proc = Start-Process `
-        -FilePath $Context.server_binary `
-        -WorkingDirectory $Context.project_root `
-        -ArgumentList $args `
-        -NoNewWindow `
-        -PassThru
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Context.server_binary
+    $psi.WorkingDirectory = $Context.project_root
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.Arguments = Convert-ArgumentListToCommandLine $args
+
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $psi
+    $proc.EnableRaisingEvents = $true
+
+    $stdoutEvent = Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -SourceIdentifier $stdoutSourceId -MessageData @{ path = $logPath } -Action {
+        if ($null -eq $EventArgs.Data) {
+            return
+        }
+        Add-Content -Path $Event.MessageData.path -Value $EventArgs.Data -Encoding UTF8
+        [Console]::Out.WriteLine($EventArgs.Data)
+    }
+    $stderrEvent = Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -SourceIdentifier $stderrSourceId -MessageData @{ path = $errPath } -Action {
+        if ($null -eq $EventArgs.Data) {
+            return
+        }
+        Add-Content -Path $Event.MessageData.path -Value $EventArgs.Data -Encoding UTF8
+        [Console]::Error.WriteLine($EventArgs.Data)
+    }
+
+    $null = $proc.Start()
+    $proc.BeginOutputReadLine()
+    $proc.BeginErrorReadLine()
 
     $entry = [pscustomobject]@{
         name       = $Target.name
@@ -881,13 +959,24 @@ function Run-DDBProcessForeground(
     Save-State $Context.state_file $State
 
     try {
-        Wait-Process -Id $proc.Id
+        $proc.WaitForExit()
     }
     finally {
+        try {
+            $proc.CancelOutputRead()
+            $proc.CancelErrorRead()
+        }
+        catch {
+        }
+        Unregister-Event -SourceIdentifier $stdoutSourceId -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $stderrSourceId -ErrorAction SilentlyContinue
+        Remove-Job -Id $stdoutEvent.Id -Force -ErrorAction SilentlyContinue
+        Remove-Job -Id $stderrEvent.Id -Force -ErrorAction SilentlyContinue
         Wait-ForPortsFree (Get-TargetPorts $Target)
         Wait-ForFileReleased ([string]$Target.db_path)
         Remove-StateEntry $State $Target.name
         Save-State $Context.state_file $State
+        $proc.Dispose()
     }
 }
 
@@ -962,7 +1051,10 @@ function Stop-ProcessTarget(
     [object]$Target
 ) {
     if (-not $State.ContainsKey($Target.name)) {
-        Write-Info "target not tracked, skip stop: $($Target.name)"
+        Write-WarnLine "target not tracked in state, fallback cleanup by ports: $($Target.name)"
+        Stop-ProcessesByPorts (Get-TargetPorts $Target)
+        Wait-ForPortsFree (Get-TargetPorts $Target)
+        Wait-ForFileReleased ([string]$Target.db_path)
         return
     }
 
@@ -1044,10 +1136,71 @@ function Show-TargetStatus(
     $rows | Format-Table -AutoSize
 }
 
+function Validate-Environment([object]$Context) {
+    if (-not (Test-Path $Context.project_root)) {
+        Fail "project_root does not exist: $($Context.project_root)"
+    }
+
+    if ($Context.build_server_binary) {
+        Require-Command go
+    }
+    elseif (-not (Test-Path $Context.server_binary)) {
+        Fail "ddb-server.exe not found: $($Context.server_binary)"
+    }
+
+    $requiresDocker = $false
+    foreach ($target in $Context.targets) {
+        if ($target.runner -eq "docker") {
+            $requiresDocker = $true
+            break
+        }
+    }
+    if ($requiresDocker) {
+        Require-Command docker
+        if (-not (Test-DockerDaemonAvailable)) {
+            Fail "docker is installed but daemon is not available; start Docker Desktop first"
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Config:   $($Context.config_path)"
+    Write-Host "Root:     $($Context.project_root)"
+    Write-Host "Server:   $($Context.server_binary)"
+    Write-Host "Log Dir:  $($Context.log_dir)"
+    Write-Host "State:    $($Context.state_file)"
+    Write-Host ""
+    Write-Host "Checks:"
+    Write-Host "  - project_root exists"
+    Write-Host "  - go available or server binary present"
+    if ($requiresDocker) {
+        Write-Host "  - docker daemon reachable"
+    }
+    else {
+        Write-Host "  - no docker targets in this config"
+    }
+    Write-Host ""
+
+    $rows = foreach ($target in $Context.targets) {
+        [pscustomobject]@{
+            Name   = $target.name
+            Runner = $target.runner
+            HTTP   = $target.http_addr
+            Raft   = $target.raft_addr
+            Join   = $target.join_addr
+            Etcd   = $target.etcd
+        }
+    }
+    $rows | Format-Table -AutoSize
+}
+
 $context = Load-ConfigContext $Config
 $state = Load-State $context.state_file
 
 switch ($Action) {
+    "validate" {
+        Validate-Environment $context
+        break
+    }
     "list" {
         Show-TargetList $context
         break

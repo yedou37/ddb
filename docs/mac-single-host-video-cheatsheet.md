@@ -13,6 +13,44 @@
 - `scripts/ddb-mac-control.sh`
 - `scripts/ddb-mac.sh`
 
+## 演示前先编译
+
+建议在正式测试或录屏前先编译出这两个程序：
+
+```bash
+go build -o ./bin/ddb-server ./cmd/server
+go build -o ./bin/ddb-cli ./cmd/cli
+```
+
+说明：
+
+- `ddb-mac-control.sh` / `ddb-mac.sh` 在缺少 `ddb-server` 时会尝试自动编译
+- 但提前编译更稳，能避免第一次启动时再临时 build
+- `ddb-cli` 不会被脚本自动编译，演示 `interact` / `inspect` 前最好先手工编译好
+
+## 环境检测命令
+
+建议在正式测试前先单独跑一遍这些检查：
+
+```bash
+go version
+python3 --version
+curl --version | head -n 1
+/opt/homebrew/bin/etcd --version
+test -x ./bin/ddb-server && echo "ddb-server ok"
+test -x ./bin/ddb-cli && echo "ddb-cli ok"
+./scripts/ddb-mac-control.sh -Action validate
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action validate
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-b.local.json -Action validate
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-c.local.json -Action validate
+```
+
+预期：
+
+- `go`、`python3`、`curl`、`etcd` 都能正常输出版本
+- `ddb-server` 和 `ddb-cli` 的存在性检查都能输出 `ok`
+- `validate` 不报错，并打印出配置摘要和节点地址
+
 核心思路：
 
 - 先准备 1 份控制平面配置

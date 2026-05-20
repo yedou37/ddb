@@ -10,7 +10,7 @@ NAME=""
 usage() {
   cat <<'USAGE'
 usage:
-  ./scripts/ddb-mac.sh [-Config path] [-Action list|status|start|stop|restart|start-all|stop-all|restart-all] [-Name node]
+  ./scripts/ddb-mac.sh [-Config path] [-Action validate|list|status|start|stop|restart|start-all|stop-all|restart-all] [-Name node]
 USAGE
 }
 
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$ACTION" in
-  list|status|start|stop|restart|start-all|stop-all|restart-all) ;;
+  validate|list|status|start|stop|restart|start-all|stop-all|restart-all) ;;
   *)
     echo "unsupported action: $ACTION" >&2
     exit 1
@@ -61,6 +61,10 @@ require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     fail "required command not found: $1"
   fi
+}
+
+require_path_exists() {
+  [[ -e "$1" ]] || fail "required path not found: $1"
 }
 
 ensure_dir() {
@@ -303,14 +307,44 @@ status_target() {
   printf '%s\t%s\t%s\t%s\n' "$TARGET_NAME" "$TARGET_GROUP_ID" "$TARGET_HTTP_ADDR" "$status"
 }
 
+validate_environment() {
+  require_command python3
+  require_command curl
+  load_context "$CONFIG"
+  require_path_exists "$PROJECT_ROOT"
+  if [[ "$BUILD_SERVER_BINARY" == "true" ]]; then
+    require_command go
+  else
+    require_path_exists "$SERVER_BINARY"
+  fi
+  ensure_dir "$LOG_DIR"
+  ensure_dir "$STATE_DIR"
+  ensure_dir "$(dirname "$TARGETS_FILE")"
+
+  log "config ok: $CONFIG_PATH"
+  log "project_root=$PROJECT_ROOT"
+  log "server_binary=$SERVER_BINARY"
+  printf 'name\tgroup\thttp\traft\tjoin\tetcd\n'
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    parse_target_line "$line"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$TARGET_NAME" "$TARGET_GROUP_ID" "$TARGET_HTTP_ADDR" "$TARGET_RAFT_ADDR" "$TARGET_JOIN_ADDR" "$TARGET_ETCD"
+  done < "$TARGETS_FILE"
+}
+
 load_context "$CONFIG"
 require_command python3
 require_command curl
-require_command go
+if [[ "$BUILD_SERVER_BINARY" == "true" ]]; then
+  require_command go
+fi
 ensure_dir "$LOG_DIR"
 ensure_dir "$STATE_DIR"
 
 case "$ACTION" in
+  validate)
+    validate_environment
+    ;;
   list)
     awk -F '\t' '{ printf "%s\t%s\t%s\n", $1, $4, $6 }' "$TARGETS_FILE"
     ;;

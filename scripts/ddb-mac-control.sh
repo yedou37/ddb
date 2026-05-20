@@ -62,6 +62,14 @@ require_command() {
   fi
 }
 
+require_path_exists() {
+  [[ -e "$1" ]] || fail "required path not found: $1"
+}
+
+docker_daemon_available() {
+  docker info >/dev/null 2>&1
+}
+
 ensure_dir() {
   mkdir -p "$1"
 }
@@ -208,11 +216,17 @@ validate() {
   require_command python3
   require_command curl
   load_config "$CONFIG"
-  require_command go
+  require_path_exists "$PROJECT_ROOT"
+  if [[ "$BUILD_SERVER_BINARY" == "true" ]]; then
+    require_command go
+  else
+    require_path_exists "$SERVER_BINARY"
+  fi
   if [[ "$ETCD_RUNNER" == "docker" ]]; then
     require_command docker
+    docker_daemon_available || fail "docker is installed but daemon is not available; start Docker Desktop first"
   else
-    require_command "$ETCD_BINARY"
+    require_path_exists "$ETCD_BINARY"
   fi
   ensure_dir "$LOG_DIR"
   ensure_dir "$STATE_DIR"
@@ -221,6 +235,7 @@ validate() {
   ensure_dir "$(dirname "$API_DB_PATH")"
   log "config ok: $CONFIG_PATH"
   log "project_root=$PROJECT_ROOT"
+  log "server_binary=$SERVER_BINARY"
   log "etcd=$ETCD_RUNNER $ETCD_ADDR"
   log "apiserver=$API_HTTP_ADDR"
 }

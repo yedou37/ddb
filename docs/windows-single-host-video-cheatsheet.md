@@ -13,6 +13,44 @@
 - `scripts/ddb-win-control.ps1`
 - `scripts/ddb-win.ps1`
 
+## 演示前先编译
+
+建议在正式测试或录屏前先编译出这两个程序：
+
+```powershell
+go build -o .\bin\ddb-server.exe .\cmd\server
+go build -o .\bin\ddb-cli.exe .\cmd\cli
+```
+
+说明：
+
+- `ddb-win-control.ps1` / `ddb-win.ps1` 在缺少 `ddb-server.exe` 时会尝试自动编译
+- 但提前编译更稳，能避免第一次启动时再临时 build
+- `ddb-cli.exe` 不会被脚本自动编译，演示 `interact` / `inspect` 前最好先手工编译好
+
+## 环境检测命令
+
+建议在正式测试前先单独跑一遍这些检查：
+
+```powershell
+go version
+docker version
+docker info
+Test-Path .\bin\ddb-server.exe
+Test-Path .\bin\ddb-cli.exe
+.\scripts\ddb-win-control.ps1 -Action validate
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action validate
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-b.local.json -Action validate
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-c.local.json -Action validate
+```
+
+预期：
+
+- `go version` 能正常输出版本
+- `docker info` 能成功返回，说明 Docker Desktop 已启动
+- `Test-Path` 对两个二进制都返回 `True`
+- `validate` 不报错，并打印出配置摘要和节点地址
+
 核心思路：
 
 - 先准备 1 份控制平面配置
@@ -70,6 +108,7 @@
 - 必须先启动控制平面，再启动 3 份 shard 配置
 - 如果你之前跑过 demo，旧的 `.ddb-data` / `.ddb-state` / `.ddb-logs` 可能会影响这次录屏，建议先清理
 - 如果节点启动失败，优先看 `.ddb-logs\*.log` 和对应的 `.err.log`
+- 如果你用 `open-terminal` / `start-all-terminals` 做前台演示，当前脚本也会把前台输出同步写入 `*.log` / `*.err.log`
 
 ## 演示前准备
 
@@ -84,7 +123,6 @@
 ```powershell
 Get-Process ddb-server -ErrorAction SilentlyContinue | Stop-Process -Force
 docker rm -f ddb-etcd 2>$null
-docker rm -f api-1 2>$null
 Remove-Item -Recurse -Force .\.ddb-data,.\.ddb-state,.\.ddb-logs -ErrorAction SilentlyContinue
 ```
 
@@ -394,5 +432,4 @@ sql SELECT * FROM users WHERE id = 102
 ```powershell
 Get-Process ddb-server -ErrorAction SilentlyContinue | Stop-Process -Force
 docker rm -f ddb-etcd 2>$null
-docker rm -f api-1 2>$null
 ```
