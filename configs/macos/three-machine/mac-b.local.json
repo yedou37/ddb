@@ -1,0 +1,42 @@
+{
+  "machine_name": "mac-b",
+  "project_root": "/Users/bytedance/dbd",
+  "local_ip": "127.0.0.1",
+  "etcd_host": "127.0.0.1",
+  "default_join_host": "127.0.0.1",
+  "log_dir": ".ddb-logs/mac-b",
+  "state_dir": ".ddb-state",
+  "build_server_binary": true,
+  "targets": [
+    {
+      "name": "g1-n2",
+      "runner": "ddb-process",
+      "role": "shard",
+      "group_id": "g1",
+      "http_port": 21180,
+      "raft_port": 22180,
+      "bootstrap": false,
+      "join_port": 21080
+    },
+    {
+      "name": "g2-n2",
+      "runner": "ddb-process",
+      "role": "shard",
+      "group_id": "g2",
+      "http_port": 21181,
+      "raft_port": 22181,
+      "bootstrap": false,
+      "join_port": 21081
+    },
+    {
+      "name": "g3-n2",
+      "runner": "ddb-process",
+      "role": "shard",
+      "group_id": "g3",
+      "http_port": 21182,
+      "raft_port": 22182,
+      "bootstrap": false,
+      "join_port": 21082
+    }
+  ]
+}

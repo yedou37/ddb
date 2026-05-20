@@ -5,7 +5,7 @@
 - 一台 macOS 机器
 - 仓库路径不固定，只要能写对 `project_root`
 - 已安装 Go
-- 已安装 Docker Desktop
+- 已安装本地 `etcd`
 - 需要录一个“分别启动控制平面与节点，再通过 CLI 交互展示功能”的视频
 
 本方案使用现在的 macOS 配置驱动脚本：
@@ -25,11 +25,9 @@
 
 ### 1. 控制平面配置
 
-复制：
+推荐直接编辑：
 
-```bash
-cp ./configs/macos/three-machine/control-plane.sample.json ./configs/macos/control-plane.local.json
-```
+- `configs/macos/control-plane.local.json`
 
 一般只需要改：
 
@@ -44,20 +42,41 @@ cp ./configs/macos/three-machine/control-plane.sample.json ./configs/macos/contr
 
 ### 2. 三份 shard 配置
 
-分别基于样例准备：
+推荐直接编辑这 3 份本地单机配置：
 
-- `configs/macos/three-machine/mac-a.sample.json`
-- `configs/macos/three-machine/mac-b.sample.json`
-- `configs/macos/three-machine/mac-c.sample.json`
+- `configs/macos/three-machine/mac-a.local.json`
+- `configs/macos/three-machine/mac-b.local.json`
+- `configs/macos/three-machine/mac-c.local.json`
 
 单机演示时建议你直接改这几项：
 
 - 三份配置都把 `project_root` 改成你的仓库目录
 - 三份配置都把 `local_ip` 改成 `127.0.0.1`
 - 三份配置都把 `etcd_host` 改成 `127.0.0.1`
-- `mac-b.sample.json` / `mac-c.sample.json` 里的 `default_join_host` 也改成 `127.0.0.1`
+- `mac-b.local.json` / `mac-c.local.json` 里的 `default_join_host` 也改成 `127.0.0.1`
 
 其余端口、节点名、`join_port`、`group_id` 一般不用动。
+
+注意：
+
+- 这份单机文档默认你使用 `*.local.json`
+- `three-machine/*.sample.json` 保留给样例配置；在本机单机演示时，优先改 `*.local.json`
+
+## 容易踩坑
+
+- `ddb-mac-control.sh` 默认读取 `configs/macos/control-plane.local.json`
+- `ddb-mac.sh` 默认读取 `configs/macos/local.json`，但这份单机方案统一显式传 `mac-a.local.json` / `mac-b.local.json` / `mac-c.local.json`，不要混用默认 `local.json`
+- 4 份 `local` 配置里的 `project_root` 都要改；如果你现在就在这台机器上测试，也可以直接使用我已经填好的本地路径
+- 如果你的 mac 不能用 Docker，就把控制平面配置里的 `etcd.runner` 设成 `native`，并确保 `binary_path` 指向本地 `etcd`
+- 必须先启动控制平面，再启动 3 份 shard 配置
+- 如果你之前跑过 demo，旧的 `.ddb-data` / `.ddb-state` / `.ddb-logs` 可能会影响这次测试，建议先清理
+- 如果节点启动失败，优先看 `.ddb-logs/*.log`
+
+本仓库当前这台 mac 已经按本地 `etcd` 配好了：
+
+- `configs/macos/control-plane.local.json`
+- `etcd.runner = native`
+- `etcd.binary_path = /opt/homebrew/bin/etcd`
 
 ## 演示前准备
 
@@ -72,7 +91,8 @@ cp ./configs/macos/three-machine/control-plane.sample.json ./configs/macos/contr
 ```bash
 pkill -f '/bin/ddb-server' 2>/dev/null || true
 pkill -f 'bin/ddb-server' 2>/dev/null || true
-docker rm -f ddb-etcd 2>/dev/null || true
+pkill -x etcd 2>/dev/null || true
+rm -rf ./.ddb-data ./.ddb-state ./.ddb-logs
 ```
 
 ## 最稳主流程
@@ -81,6 +101,19 @@ docker rm -f ddb-etcd 2>/dev/null || true
 
 ```bash
 cd /Users/yourname/ddb
+```
+
+进入仓库后，先确认下面 4 个文件里的 `project_root` 都已经改成当前仓库路径：
+
+- `configs/macos/control-plane.local.json`
+- `configs/macos/three-machine/mac-a.local.json`
+- `configs/macos/three-machine/mac-b.local.json`
+- `configs/macos/three-machine/mac-c.local.json`
+
+如果你想先做一遍控制平面前置检查，可以先执行：
+
+```bash
+/opt/homebrew/bin/etcd --version
 ```
 
 ### 2. 启动控制平面
@@ -100,9 +133,9 @@ cd /Users/yourname/ddb
 按顺序执行：
 
 ```bash
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action start-all
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-b.sample.json -Action start-all
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-c.sample.json -Action start-all
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action start-all
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-b.local.json -Action start-all
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-c.local.json -Action start-all
 ```
 
 如果你想强调“分别启动节点”的过程，也可以改成逐个节点启动。
@@ -110,9 +143,9 @@ cd /Users/yourname/ddb
 例如：
 
 ```bash
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action start -Name g1-n1
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action start -Name g2-n1
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action start -Name g3-n1
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action start -Name g1-n1
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action start -Name g2-n1
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action start -Name g3-n1
 ```
 
 ### 4. 打开 dashboard
@@ -125,7 +158,7 @@ open http://127.0.0.1:18100/dashboard/
 
 ```bash
 ./scripts/ddb-mac-control.sh -Action status
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action status
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action status
 curl -fsS http://127.0.0.1:18100/health
 ```
 
@@ -254,7 +287,7 @@ sql SELECT * FROM users WHERE id = 102
 先停一个节点：
 
 ```bash
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action stop -Name g1-n1
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action stop -Name g1-n1
 ```
 
 然后继续在交互模式里执行：
@@ -269,7 +302,7 @@ sql SELECT * FROM users WHERE id = 103
 恢复节点：
 
 ```bash
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action start -Name g1-n1
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action start -Name g1-n1
 ```
 
 ## 一次性复制版
@@ -278,9 +311,9 @@ sql SELECT * FROM users WHERE id = 103
 cd /Users/yourname/ddb
 ./scripts/ddb-mac-control.sh -Action validate
 ./scripts/ddb-mac-control.sh -Action start
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action start-all
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-b.sample.json -Action start-all
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-c.sample.json -Action start-all
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action start-all
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-b.local.json -Action start-all
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-c.local.json -Action start-all
 open http://127.0.0.1:18100/dashboard/
 ./bin/ddb-cli --node-url=http://127.0.0.1:18100 interact
 ```
@@ -288,8 +321,8 @@ open http://127.0.0.1:18100/dashboard/
 ## 收尾清理
 
 ```bash
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-c.sample.json -Action stop-all
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-b.sample.json -Action stop-all
-./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action stop-all
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-c.local.json -Action stop-all
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-b.local.json -Action stop-all
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action stop-all
 ./scripts/ddb-mac-control.sh -Action stop
 ```
