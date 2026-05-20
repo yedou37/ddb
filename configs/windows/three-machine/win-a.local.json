@@ -1,6 +1,6 @@
 {
   "machine_name": "win-a",
-  "project_root": "",
+  "project_root": "c:\\Users\\yedou\\ddb",
   "local_ip": "127.0.0.1",
   "etcd_host": "127.0.0.1",
   "log_dir": ".ddb-logs\\win-a",

@@ -88,13 +88,13 @@ function Wait-ForHttp([string]$Url, [int]$Attempts = 60, [int]$SleepSeconds = 1)
 
 function Resolve-HealthURL(
     [string]$Value,
-    [string]$Host,
+    [string]$HostAddr,
     [int]$Port
 ) {
     if (-not [string]::IsNullOrWhiteSpace($Value)) {
         return $Value
     }
-    return ("http://{0}:{1}/health" -f $Host, $Port)
+    return ("http://{0}:{1}/health" -f $HostAddr, $Port)
 }
 
 function Load-ControlPlaneConfig([string]$ConfigPath) {
@@ -122,20 +122,34 @@ function Load-ControlPlaneConfig([string]$ConfigPath) {
         $machineName = "control-plane"
     }
 
-    $dataRoot = Resolve-AbsolutePath ([string]$cfg.data_root) $projectRoot $configDir
+    $dataRoot = ""
+    if ($null -ne $cfg.PSObject.Properties['data_root']) {
+        $dataRoot = Resolve-AbsolutePath ([string]$cfg.data_root) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($dataRoot)) {
         $dataRoot = Join-Path $projectRoot ".ddb-data"
     }
-    $logDir = Resolve-AbsolutePath ([string]$cfg.log_dir) $projectRoot $configDir
+    
+    $logDir = ""
+    if ($null -ne $cfg.PSObject.Properties['log_dir']) {
+        $logDir = Resolve-AbsolutePath ([string]$cfg.log_dir) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($logDir)) {
         $logDir = Join-Path $projectRoot ".ddb-logs\control-plane"
     }
-    $stateDir = Resolve-AbsolutePath ([string]$cfg.state_dir) $projectRoot $configDir
+    
+    $stateDir = ""
+    if ($null -ne $cfg.PSObject.Properties['state_dir']) {
+        $stateDir = Resolve-AbsolutePath ([string]$cfg.state_dir) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($stateDir)) {
         $stateDir = Join-Path $projectRoot ".ddb-state"
     }
 
-    $serverBinary = Resolve-AbsolutePath ([string]$cfg.server_binary) $projectRoot $configDir
+    $serverBinary = ""
+    if ($null -ne $cfg.PSObject.Properties['server_binary']) {
+        $serverBinary = Resolve-AbsolutePath ([string]$cfg.server_binary) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($serverBinary)) {
         $serverBinary = Join-Path $projectRoot "bin\ddb-server.exe"
     }
@@ -148,7 +162,10 @@ function Load-ControlPlaneConfig([string]$ConfigPath) {
     if ($null -eq $etcdCfg) {
         Fail "config requires etcd section"
     }
-    $etcdRunner = [string]$etcdCfg.runner
+    $etcdRunner = ""
+    if ($null -ne $etcdCfg.PSObject.Properties['runner']) {
+        $etcdRunner = [string]$etcdCfg.runner
+    }
     if ([string]::IsNullOrWhiteSpace($etcdRunner)) {
         $etcdRunner = "docker"
     }
@@ -156,23 +173,41 @@ function Load-ControlPlaneConfig([string]$ConfigPath) {
         Fail "etcd.runner must be docker or native"
     }
     $etcdPort = 2379
-    if ($null -ne $etcdCfg.port -and [int]$etcdCfg.port -gt 0) {
+    if ($null -ne $etcdCfg.PSObject.Properties['port'] -and [int]$etcdCfg.port -gt 0) {
         $etcdPort = [int]$etcdCfg.port
     }
-    $etcdDataDir = Resolve-AbsolutePath ([string]$etcdCfg.data_dir) $projectRoot $configDir
+    $etcdDataDir = ""
+    if ($null -ne $etcdCfg.PSObject.Properties['data_dir']) {
+        $etcdDataDir = Resolve-AbsolutePath ([string]$etcdCfg.data_dir) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($etcdDataDir)) {
         $etcdDataDir = Join-Path $projectRoot ".ddb-control\etcd"
     }
-    $etcdHealthURL = Resolve-HealthURL ([string]$etcdCfg.health_url) $localIP $etcdPort
-    $etcdBinary = Resolve-AbsolutePath ([string]$etcdCfg.binary_path) $projectRoot $configDir
+    $etcdHealthURL = ""
+    if ($null -ne $etcdCfg.PSObject.Properties['health_url']) {
+        $etcdHealthURL = Resolve-HealthURL ([string]$etcdCfg.health_url) $localIP $etcdPort
+    }
+    if ([string]::IsNullOrWhiteSpace($etcdHealthURL)) {
+        $etcdHealthURL = Resolve-HealthURL "" $localIP $etcdPort
+    }
+    $etcdBinary = ""
+    if ($null -ne $etcdCfg.PSObject.Properties['binary_path']) {
+        $etcdBinary = Resolve-AbsolutePath ([string]$etcdCfg.binary_path) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($etcdBinary)) {
         $etcdBinary = Join-Path $projectRoot "tools\etcd-v3.5.9-windows-amd64\etcd.exe"
     }
-    $etcdContainerName = [string]$etcdCfg.container_name
+    $etcdContainerName = ""
+    if ($null -ne $etcdCfg.PSObject.Properties['container_name']) {
+        $etcdContainerName = [string]$etcdCfg.container_name
+    }
     if ([string]::IsNullOrWhiteSpace($etcdContainerName)) {
         $etcdContainerName = "ddb-etcd"
     }
-    $etcdImage = [string]$etcdCfg.image
+    $etcdImage = ""
+    if ($null -ne $etcdCfg.PSObject.Properties['image']) {
+        $etcdImage = [string]$etcdCfg.image
+    }
     if ([string]::IsNullOrWhiteSpace($etcdImage)) {
         $etcdImage = "quay.io/coreos/etcd:v3.5.9"
     }
@@ -181,35 +216,53 @@ function Load-ControlPlaneConfig([string]$ConfigPath) {
     if ($null -eq $apiCfg) {
         Fail "config requires apiserver section"
     }
-    $apiNodeID = [string]$apiCfg.node_id
+    $apiNodeID = ""
+    if ($null -ne $apiCfg.PSObject.Properties['node_id']) {
+        $apiNodeID = [string]$apiCfg.node_id
+    }
     if ([string]::IsNullOrWhiteSpace($apiNodeID)) {
         $apiNodeID = "api-1"
     }
-    $apiGroupID = [string]$apiCfg.group_id
+    $apiGroupID = ""
+    if ($null -ne $apiCfg.PSObject.Properties['group_id']) {
+        $apiGroupID = [string]$apiCfg.group_id
+    }
     if ([string]::IsNullOrWhiteSpace($apiGroupID)) {
         $apiGroupID = "control"
     }
     $apiHTTPPort = 18100
-    if ($null -ne $apiCfg.http_port -and [int]$apiCfg.http_port -gt 0) {
+    if ($null -ne $apiCfg.PSObject.Properties['http_port'] -and [int]$apiCfg.http_port -gt 0) {
         $apiHTTPPort = [int]$apiCfg.http_port
     }
     $apiRaftPort = 30100
-    if ($null -ne $apiCfg.raft_port -and [int]$apiCfg.raft_port -gt 0) {
+    if ($null -ne $apiCfg.PSObject.Properties['raft_port'] -and [int]$apiCfg.raft_port -gt 0) {
         $apiRaftPort = [int]$apiCfg.raft_port
     }
     $apiBootstrap = $false
-    if ($null -ne $apiCfg.bootstrap) {
+    if ($null -ne $apiCfg.PSObject.Properties['bootstrap']) {
         $apiBootstrap = [bool]$apiCfg.bootstrap
     }
-    $apiRaftDir = Resolve-AbsolutePath ([string]$apiCfg.raft_dir) $projectRoot $configDir
+    $apiRaftDir = ""
+    if ($null -ne $apiCfg.PSObject.Properties['raft_dir']) {
+        $apiRaftDir = Resolve-AbsolutePath ([string]$apiCfg.raft_dir) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($apiRaftDir)) {
         $apiRaftDir = Join-Path (Join-Path $dataRoot $apiNodeID) "raft"
     }
-    $apiDbPath = Resolve-AbsolutePath ([string]$apiCfg.db_path) $projectRoot $configDir
+    $apiDbPath = ""
+    if ($null -ne $apiCfg.PSObject.Properties['db_path']) {
+        $apiDbPath = Resolve-AbsolutePath ([string]$apiCfg.db_path) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($apiDbPath)) {
         $apiDbPath = Join-Path (Join-Path $dataRoot $apiNodeID) "apiserver.db"
     }
-    $apiHealthURL = Resolve-HealthURL ([string]$apiCfg.health_url) $localIP $apiHTTPPort
+    $apiHealthURL = ""
+    if ($null -ne $apiCfg.PSObject.Properties['health_url']) {
+        $apiHealthURL = Resolve-HealthURL ([string]$apiCfg.health_url) $localIP $apiHTTPPort
+    }
+    if ([string]::IsNullOrWhiteSpace($apiHealthURL)) {
+        $apiHealthURL = Resolve-HealthURL "" $localIP $apiHTTPPort
+    }
 
     Ensure-Directory $logDir
     Ensure-Directory $stateDir
@@ -305,21 +358,22 @@ function Ensure-ServerBinary([object]$Context) {
     }
 }
 
-function Test-ProcessRunning([int]$Pid) {
-    return $null -ne (Get-Process -Id $Pid -ErrorAction SilentlyContinue)
+function Test-ProcessRunning([int]$ProcessId) {
+    return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 
-function Wait-ForProcessExit([int]$Pid, [int]$Attempts = 40, [int]$SleepMilliseconds = 250) {
-    if ($Pid -le 0) {
+function Wait-ForProcessExit([int]$ProcessId, [int]$Attempts = 40, [int]$SleepMilliseconds = 250) {
+    if ($ProcessId -le 0) {
         return
     }
     for ($i = 0; $i -lt $Attempts; $i++) {
-        if (-not (Test-ProcessRunning $Pid)) {
+        if (-not (Test-ProcessRunning $ProcessId)) {
             return
         }
         Start-Sleep -Milliseconds $SleepMilliseconds
     }
-    Fail "process did not exit in time: pid=$Pid"
+
+    Fail "process did not exit in time: pid=$ProcessId"
 }
 
 function Get-PortFromAddress([string]$Address) {
@@ -335,16 +389,16 @@ function Get-PortFromAddress([string]$Address) {
 
 function Get-OwningProcessesByPort([int]$Port) {
     if ($Port -le 0) {
-        return @()
+        return [array]@()
     }
     if (-not (Test-Command Get-NetTCPConnection)) {
-        return @()
+        return [array]@()
     }
 
     try {
         $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
         if ($null -eq $connections) {
-            return @()
+            return [array]@()
         }
         $pids = @()
         foreach ($conn in @($connections)) {
@@ -352,10 +406,14 @@ function Get-OwningProcessesByPort([int]$Port) {
                 $pids += [int]$conn.OwningProcess
             }
         }
-        return @($pids | Sort-Object -Unique)
+        $result = @($pids | Sort-Object -Unique)
+        if ($null -eq $result) {
+            return [array]@()
+        }
+        return [array]$result
     }
     catch {
-        return @()
+        return [array]@()
     }
 }
 
@@ -365,13 +423,13 @@ function Stop-ProcessesByPorts([int[]]$Ports) {
         $allPids += Get-OwningProcessesByPort $port
     }
 
-    foreach ($pid in @($allPids | Sort-Object -Unique)) {
-        if ($pid -le 0) {
+    foreach ($processId in @($allPids | Sort-Object -Unique)) {
+        if ($processId -le 0) {
             continue
         }
-        Write-WarnLine "killing stale process pid=$pid occupying target port"
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        Wait-ForProcessExit $pid
+        Write-WarnLine "killing stale process pid=$processId occupying target port"
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        Wait-ForProcessExit $processId
     }
 }
 
@@ -384,7 +442,8 @@ function Wait-ForPortsFree([int[]]$Ports, [int]$Attempts = 40, [int]$SleepMillis
     for ($i = 0; $i -lt $Attempts; $i++) {
         $busy = $false
         foreach ($port in $normalized) {
-            if ((Get-OwningProcessesByPort $port).Count -gt 0) {
+            $portProcesses = Get-OwningProcessesByPort $port
+            if ($null -ne $portProcesses -and $portProcesses.Count -gt 0) {
                 $busy = $true
                 break
             }
@@ -444,8 +503,11 @@ function Start-Etcd([object]$Context, [hashtable]$State) {
 
         Ensure-Directory $cfg.data_dir
         Write-Info "start etcd docker container"
-        & docker rm -f $cfg.container_name 2>$null | Out-Null
-        & docker run -d `
+        $existingContainer = & docker ps -a --filter "name=^/$($cfg.container_name)$" --format "{{.Names}}" 2>$null
+        if (-not [string]::IsNullOrWhiteSpace($existingContainer)) {
+            $null = & docker rm -f $cfg.container_name 2>$null
+        }
+        $null = & docker run -d `
             --name $cfg.container_name `
             --restart unless-stopped `
             -p "$($cfg.port):2379" `
@@ -517,21 +579,24 @@ function Stop-Etcd([object]$Context, [hashtable]$State) {
     if ($cfg.runner -eq "docker") {
         if (Test-Command docker) {
             Write-Info "stop etcd docker container"
-            & docker rm -f $cfg.container_name 2>$null | Out-Null
+            $existingContainer = & docker ps -a --filter "name=^/$($cfg.container_name)$" --format "{{.Names}}" 2>$null
+            if (-not [string]::IsNullOrWhiteSpace($existingContainer)) {
+                $null = & docker rm -f $cfg.container_name 2>$null
+            }
         }
         $State.etcd = $null
         Save-State $Context.state_file $State
         return
     }
 
-    $pid = 0
+    $processId = 0
     if ($null -ne $State.etcd -and $null -ne $State.etcd.pid) {
-        $pid = [int]$State.etcd.pid
+        $processId = [int]$State.etcd.pid
     }
-    if ($pid -gt 0 -and (Test-ProcessRunning $pid)) {
-        Write-Info "stop native etcd pid=$pid"
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        Wait-ForProcessExit $pid
+    if ($processId -gt 0 -and (Test-ProcessRunning $processId)) {
+        Write-Info "stop native etcd pid=$processId"
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        Wait-ForProcessExit $processId
     }
     else {
         Stop-ProcessesByPorts @($cfg.port)
@@ -580,7 +645,7 @@ function Start-ApiServer([object]$Context, [hashtable]$State) {
         -WorkingDirectory $Context.project_root `
         -ArgumentList $args `
         -RedirectStandardOutput $Context.apiserver.log_path `
-        -RedirectStandardError $Context.apiserver.log_path `
+        -RedirectStandardError ($Context.apiserver.log_path -replace '\.log$', '.err.log') `
         -WindowStyle Hidden `
         -PassThru
 
@@ -598,14 +663,14 @@ function Stop-ApiServer([object]$Context, [hashtable]$State) {
         (Get-PortFromAddress $Context.apiserver.http_addr),
         (Get-PortFromAddress $Context.apiserver.raft_addr)
     )
-    $pid = 0
+    $processId = 0
     if ($null -ne $State.apiserver -and $null -ne $State.apiserver.pid) {
-        $pid = [int]$State.apiserver.pid
+        $processId = [int]$State.apiserver.pid
     }
-    if ($pid -gt 0 -and (Test-ProcessRunning $pid)) {
-        Write-Info "stop apiserver pid=$pid"
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        Wait-ForProcessExit $pid
+    if ($processId -gt 0 -and (Test-ProcessRunning $processId)) {
+        Write-Info "stop apiserver pid=$processId"
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        Wait-ForProcessExit $processId
     }
     else {
         Stop-ProcessesByPorts $ports

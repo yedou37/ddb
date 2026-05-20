@@ -1,0 +1,38 @@
+{
+  "version": 4,
+  "total_shards": 8,
+  "assignments": [
+    {
+      "shard_id": 0,
+      "group_id": "g1"
+    },
+    {
+      "shard_id": 1,
+      "group_id": "g2"
+    },
+    {
+      "shard_id": 2,
+      "group_id": "g3"
+    },
+    {
+      "shard_id": 3,
+      "group_id": "g1"
+    },
+    {
+      "shard_id": 4,
+      "group_id": "g2"
+    },
+    {
+      "shard_id": 5,
+      "group_id": "g3"
+    },
+    {
+      "shard_id": 6,
+      "group_id": "g1"
+    },
+    {
+      "shard_id": 7,
+      "group_id": "g2"
+    }
+  ]
+}

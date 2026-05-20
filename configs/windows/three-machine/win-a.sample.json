@@ -1,8 +1,8 @@
 {
   "machine_name": "win-a",
-  "project_root": "C:\\ddb",
-  "local_ip": "192.168.1.10",
-  "etcd_host": "192.168.1.10",
+  "project_root": "c:\\Users\\yedou\\ddb",
+  "local_ip": "127.0.0.1",
+  "etcd_host": "127.0.0.1",
   "log_dir": ".ddb-logs\\win-a",
   "state_dir": ".ddb-state",
   "build_server_binary": true,

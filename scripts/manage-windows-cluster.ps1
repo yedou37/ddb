@@ -112,17 +112,17 @@ function Resolve-VolumeMounts(
 
 function Resolve-HostPortAddress(
     [string]$Address,
-    [string]$Host,
+    [string]$HostAddr,
     [object]$Port,
     [string]$FieldName
 ) {
     if (-not [string]::IsNullOrWhiteSpace($Address)) {
         return $Address
     }
-    if ([string]::IsNullOrWhiteSpace($Host) -or $null -eq $Port -or [int]$Port -le 0) {
+    if ([string]::IsNullOrWhiteSpace($HostAddr) -or $null -eq $Port -or [int]$Port -le 0) {
         return ""
     }
-    return ("{0}:{1}" -f $Host.Trim(), [int]$Port)
+    return ("{0}:{1}" -f $HostAddr.Trim(), [int]$Port)
 }
 
 function Resolve-HealthURL(
@@ -147,49 +147,160 @@ function Resolve-Target(
     [string]$ConfigDir,
     [object]$Defaults
 ) {
-    $targetName = [string]$Target.name
+    $targetName = ""
+    if ($null -ne $Target.PSObject.Properties['name']) {
+        $targetName = [string]$Target.name
+    }
     $localIP = [string]$Defaults.local_ip
     $dataRoot = [string]$Defaults.data_root
     $etcdHost = [string]$Defaults.etcd_host
     $etcdPort = [int]$Defaults.etcd_port
     $defaultJoinHost = [string]$Defaults.default_join_host
 
-    $httpAddr = Resolve-HostPortAddress ([string]$Target.http_addr) $localIP $Target.http_port "http_addr"
-    $raftAddr = Resolve-HostPortAddress ([string]$Target.raft_addr) $localIP $Target.raft_port "raft_addr"
-    $joinHost = [string]$Target.join_host
+    $httpAddr = ""
+    $httpAddrInput = ""
+    if ($null -ne $Target.PSObject.Properties['http_addr']) {
+        $httpAddrInput = [string]$Target.http_addr
+    }
+    $httpPort = $null
+    if ($null -ne $Target.PSObject.Properties['http_port']) {
+        $httpPort = $Target.http_port
+    }
+    $httpAddr = Resolve-HostPortAddress $httpAddrInput $localIP $httpPort "http_addr"
+
+    $raftAddr = ""
+    $raftAddrInput = ""
+    if ($null -ne $Target.PSObject.Properties['raft_addr']) {
+        $raftAddrInput = [string]$Target.raft_addr
+    }
+    $raftPort = $null
+    if ($null -ne $Target.PSObject.Properties['raft_port']) {
+        $raftPort = $Target.raft_port
+    }
+    $raftAddr = Resolve-HostPortAddress $raftAddrInput $localIP $raftPort "raft_addr"
+
+    $joinHost = ""
+    if ($null -ne $Target.PSObject.Properties['join_host']) {
+        $joinHost = [string]$Target.join_host
+    }
     if ([string]::IsNullOrWhiteSpace($joinHost)) {
         $joinHost = $defaultJoinHost
     }
-    $joinAddr = Resolve-HostPortAddress ([string]$Target.join_addr) $joinHost $Target.join_port "join_addr"
-    $etcdAddr = Resolve-HostPortAddress ([string]$Target.etcd) $etcdHost $etcdPort "etcd"
 
-    $raftDirInput = [string]$Target.raft_dir
+    $joinAddr = ""
+    $joinAddrInput = ""
+    if ($null -ne $Target.PSObject.Properties['join_addr']) {
+        $joinAddrInput = [string]$Target.join_addr
+    }
+    $joinPort = $null
+    if ($null -ne $Target.PSObject.Properties['join_port']) {
+        $joinPort = $Target.join_port
+    }
+    $joinAddr = Resolve-HostPortAddress $joinAddrInput $joinHost $joinPort "join_addr"
+
+    $etcdAddrInput = ""
+    if ($null -ne $Target.PSObject.Properties['etcd']) {
+        $etcdAddrInput = [string]$Target.etcd
+    }
+    $etcdAddr = Resolve-HostPortAddress $etcdAddrInput $etcdHost $etcdPort "etcd"
+
+    $raftDirInput = ""
+    if ($null -ne $Target.PSObject.Properties['raft_dir']) {
+        $raftDirInput = [string]$Target.raft_dir
+    }
     if ([string]::IsNullOrWhiteSpace($raftDirInput) -and -not [string]::IsNullOrWhiteSpace($targetName)) {
         $raftDirInput = Join-Path (Join-Path $dataRoot $targetName) "raft"
     }
-    $dbPathInput = [string]$Target.db_path
+
+    $dbPathInput = ""
+    if ($null -ne $Target.PSObject.Properties['db_path']) {
+        $dbPathInput = [string]$Target.db_path
+    }
     if ([string]::IsNullOrWhiteSpace($dbPathInput) -and -not [string]::IsNullOrWhiteSpace($targetName)) {
         $dbPathInput = Join-Path (Join-Path $dataRoot $targetName) "data.db"
     }
 
+    $runner = ""
+    if ($null -ne $Target.PSObject.Properties['runner']) {
+        $runner = [string]$Target.runner
+    }
+
+    $healthUrl = ""
+    if ($null -ne $Target.PSObject.Properties['health_url']) {
+        $healthUrl = [string]$Target.health_url
+    }
+
+    $nodeId = $targetName
+    if ($null -ne $Target.PSObject.Properties['node_id']) {
+        $nodeIdInput = [string]$Target.node_id
+        if (-not [string]::IsNullOrWhiteSpace($nodeIdInput)) {
+            $nodeId = $nodeIdInput
+        }
+    }
+
+    $role = ""
+    if ($null -ne $Target.PSObject.Properties['role']) {
+        $role = [string]$Target.role
+    }
+
+    $groupId = ""
+    if ($null -ne $Target.PSObject.Properties['group_id']) {
+        $groupId = [string]$Target.group_id
+    }
+
+    $bootstrap = $false
+    if ($null -ne $Target.PSObject.Properties['bootstrap']) {
+        $bootstrap = [bool]$Target.bootstrap
+    }
+
+    $rejoin = $false
+    if ($null -ne $Target.PSObject.Properties['rejoin']) {
+        $rejoin = [bool]$Target.rejoin
+    }
+
+    $containerName = ""
+    if ($null -ne $Target.PSObject.Properties['container_name']) {
+        $containerName = [string]$Target.container_name
+    }
+
+    $image = ""
+    if ($null -ne $Target.PSObject.Properties['image']) {
+        $image = [string]$Target.image
+    }
+
+    $ports = @()
+    if ($null -ne $Target.PSObject.Properties['ports']) {
+        $ports = @([string[]]$Target.ports)
+    }
+
+    $command = @()
+    if ($null -ne $Target.PSObject.Properties['command']) {
+        $command = @([string[]]$Target.command)
+    }
+
+    $volumes = @()
+    if ($null -ne $Target.PSObject.Properties['volumes']) {
+        $volumes = Resolve-VolumeMounts @($Target.volumes) $ProjectRoot $ConfigDir
+    }
+
     $resolved = [pscustomobject]@{
         name           = $targetName
-        runner         = [string]$Target.runner
-        health_url     = Resolve-HealthURL ([string]$Target.health_url) $httpAddr
-        node_id        = $(if (-not [string]::IsNullOrWhiteSpace([string]$Target.node_id)) { [string]$Target.node_id } else { $targetName })
-        role           = [string]$Target.role
-        group_id       = [string]$Target.group_id
+        runner         = $runner
+        health_url     = Resolve-HealthURL $healthUrl $httpAddr
+        node_id        = $nodeId
+        role           = $role
+        group_id       = $groupId
         http_addr      = $httpAddr
         raft_addr      = $raftAddr
-        bootstrap      = [bool]$Target.bootstrap
-        rejoin         = [bool]$Target.rejoin
+        bootstrap      = $bootstrap
+        rejoin         = $rejoin
         join_addr      = $joinAddr
         etcd           = $etcdAddr
-        container_name = [string]$Target.container_name
-        image          = [string]$Target.image
-        ports          = @([string[]]$Target.ports)
-        command        = @([string[]]$Target.command)
-        volumes        = Resolve-VolumeMounts @($Target.volumes) $ProjectRoot $ConfigDir
+        container_name = $containerName
+        image          = $image
+        ports          = $ports
+        command        = $command
+        volumes        = $volumes
         raft_dir       = Resolve-AbsolutePath $raftDirInput $ProjectRoot $ConfigDir
         db_path        = Resolve-AbsolutePath $dbPathInput $ProjectRoot $ConfigDir
     }
@@ -233,34 +344,63 @@ function Load-ConfigContext([string]$ConfigPath) {
     }
 
     $projectRoot = Resolve-AbsolutePath $projectRootInput $configDir $configDir
-    $dataRoot = Resolve-AbsolutePath ([string]$cfg.data_root) $projectRoot $configDir
+    
+    $dataRoot = ""
+    if ($null -ne $cfg.PSObject.Properties['data_root']) {
+        $dataRoot = Resolve-AbsolutePath ([string]$cfg.data_root) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($dataRoot)) {
         $dataRoot = Join-Path $projectRoot ".ddb-data"
     }
-    $logDir = Resolve-AbsolutePath ([string]$cfg.log_dir) $projectRoot $configDir
+    
+    $logDir = ""
+    if ($null -ne $cfg.PSObject.Properties['log_dir']) {
+        $logDir = Resolve-AbsolutePath ([string]$cfg.log_dir) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($logDir)) {
         $logDir = Join-Path $projectRoot ".ddb-logs"
     }
 
-    $stateDir = Resolve-AbsolutePath ([string]$cfg.state_dir) $projectRoot $configDir
+    $stateDir = ""
+    if ($null -ne $cfg.PSObject.Properties['state_dir']) {
+        $stateDir = Resolve-AbsolutePath ([string]$cfg.state_dir) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($stateDir)) {
         $stateDir = Join-Path $projectRoot ".ddb-state"
     }
 
-    $machineName = [string]$cfg.machine_name
+    $machineName = ""
+    if ($null -ne $cfg.PSObject.Properties['machine_name']) {
+        $machineName = [string]$cfg.machine_name
+    }
     if ([string]::IsNullOrWhiteSpace($machineName)) {
         $machineName = "default"
     }
 
-    $localIP = [string]$cfg.local_ip
-    $etcdHost = [string]$cfg.etcd_host
+    $localIP = ""
+    if ($null -ne $cfg.PSObject.Properties['local_ip']) {
+        $localIP = [string]$cfg.local_ip
+    }
+    
+    $etcdHost = ""
+    if ($null -ne $cfg.PSObject.Properties['etcd_host']) {
+        $etcdHost = [string]$cfg.etcd_host
+    }
+    
     $etcdPort = 2379
-    if ($null -ne $cfg.etcd_port -and [int]$cfg.etcd_port -gt 0) {
+    if ($null -ne $cfg.PSObject.Properties['etcd_port'] -and [int]$cfg.etcd_port -gt 0) {
         $etcdPort = [int]$cfg.etcd_port
     }
-    $defaultJoinHost = [string]$cfg.default_join_host
+    
+    $defaultJoinHost = ""
+    if ($null -ne $cfg.PSObject.Properties['default_join_host']) {
+        $defaultJoinHost = [string]$cfg.default_join_host
+    }
 
-    $serverBinary = Resolve-AbsolutePath ([string]$cfg.server_binary) $projectRoot $configDir
+    $serverBinary = ""
+    if ($null -ne $cfg.PSObject.Properties['server_binary']) {
+        $serverBinary = Resolve-AbsolutePath ([string]$cfg.server_binary) $projectRoot $configDir
+    }
     if ([string]::IsNullOrWhiteSpace($serverBinary)) {
         $serverBinary = Join-Path $projectRoot "bin\ddb-server.exe"
     }
@@ -378,8 +518,8 @@ function Get-TargetByName([object]$Context, [string]$Name) {
     Fail "target not found: $Name"
 }
 
-function Test-ProcessRunning([int]$Pid) {
-    return $null -ne (Get-Process -Id $Pid -ErrorAction SilentlyContinue)
+function Test-ProcessRunning([int]$ProcessId) {
+    return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 
 function Get-PortFromAddress([string]$Address) {
@@ -423,19 +563,19 @@ function Get-OwningProcessesByPort([int]$Port) {
     }
 }
 
-function Wait-ForProcessExit([int]$Pid, [int]$Attempts = 40, [int]$SleepMilliseconds = 250) {
-    if ($Pid -le 0) {
+function Wait-ForProcessExit([int]$ProcessId, [int]$Attempts = 40, [int]$SleepMilliseconds = 250) {
+    if ($ProcessId -le 0) {
         return
     }
 
     for ($i = 0; $i -lt $Attempts; $i++) {
-        if (-not (Test-ProcessRunning $Pid)) {
+        if (-not (Test-ProcessRunning $ProcessId)) {
             return
         }
         Start-Sleep -Milliseconds $SleepMilliseconds
     }
 
-    Fail "process did not exit in time: pid=$Pid"
+    Fail "process did not exit in time: pid=$ProcessId"
 }
 
 function Stop-ProcessesByPorts([int[]]$Ports) {
@@ -444,13 +584,13 @@ function Stop-ProcessesByPorts([int[]]$Ports) {
         $allPids += Get-OwningProcessesByPort $port
     }
 
-    foreach ($pid in @($allPids | Sort-Object -Unique)) {
-        if ($pid -le 0) {
+    foreach ($processId in @($allPids | Sort-Object -Unique)) {
+        if ($processId -le 0) {
             continue
         }
-        Write-WarnLine "killing stale process pid=$pid occupying target port"
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        Wait-ForProcessExit $pid
+        Write-WarnLine "killing stale process pid=$processId occupying target port"
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        Wait-ForProcessExit $processId
     }
 }
 
@@ -463,7 +603,8 @@ function Wait-ForPortsFree([int[]]$Ports, [int]$Attempts = 40, [int]$SleepMillis
     for ($i = 0; $i -lt $Attempts; $i++) {
         $busy = $false
         foreach ($port in $normalized) {
-            if ((Get-OwningProcessesByPort $port).Count -gt 0) {
+            $portProcesses = Get-OwningProcessesByPort $port
+            if ($null -ne $portProcesses -and $portProcesses.Count -gt 0) {
                 $busy = $true
                 break
             }
@@ -546,13 +687,13 @@ function Get-TargetStatus(
             }
         }
 
-        $pid = [int]$stateEntry.pid
-        $running = Test-ProcessRunning $pid
+        $processId = [int]$stateEntry.pid
+        $running = Test-ProcessRunning $processId
         return [pscustomobject]@{
             Name    = $Target.name
             Runner  = $Target.runner
             Status  = $(if ($running) { "running" } else { "stopped" })
-            Detail  = "pid=$pid"
+            Detail  = "pid=$processId"
             LogPath = [string]$stateEntry.log_path
         }
     }
@@ -663,7 +804,7 @@ function Start-DDBProcessTarget(
         -WorkingDirectory $Context.project_root `
         -ArgumentList $args `
         -RedirectStandardOutput $logPath `
-        -RedirectStandardError $logPath `
+        -RedirectStandardError ($logPath -replace '\.log$', '.err.log') `
         -WindowStyle Hidden `
         -PassThru
 
@@ -770,7 +911,10 @@ function Start-DockerTarget(
     }
 
     Write-Info "start docker target: $($Target.name)"
-    & docker rm -f $containerName 2>$null | Out-Null
+    $existingContainer = & docker ps -a --filter "name=^/$containerName$" --format "{{.Names}}" 2>$null
+    if (-not [string]::IsNullOrWhiteSpace($existingContainer)) {
+        $null = & docker rm -f $containerName 2>$null
+    }
 
     $args = @("run", "-d", "--name", $containerName, "--restart", "unless-stopped")
     foreach ($port in $Target.ports) {
@@ -822,11 +966,11 @@ function Stop-ProcessTarget(
         return
     }
 
-    $pid = [int]$State[$Target.name].pid
-    if (Test-ProcessRunning $pid) {
-        Write-Info "stop process target: $($Target.name) pid=$pid"
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        Wait-ForProcessExit $pid
+    $processId = [int]$State[$Target.name].pid
+    if (Test-ProcessRunning $processId) {
+        Write-Info "stop process target: $($Target.name) pid=$processId"
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        Wait-ForProcessExit $processId
     }
     else {
         Write-Info "process already stopped: $($Target.name)"
@@ -848,7 +992,10 @@ function Stop-DockerTarget(
     $containerName = $Target.container_name
     if (-not [string]::IsNullOrWhiteSpace($containerName)) {
         Write-Info "stop docker target: $($Target.name)"
-        & docker rm -f $containerName 2>$null | Out-Null
+        $existingContainer = & docker ps -a --filter "name=^/$containerName$" --format "{{.Names}}" 2>$null
+        if (-not [string]::IsNullOrWhiteSpace($existingContainer)) {
+            $null = & docker rm -f $containerName 2>$null
+        }
     }
 
     Remove-StateEntry $State $Target.name

@@ -1,6 +1,6 @@
 {
   "machine_name": "win-control",
-  "project_root": "",
+  "project_root": "c:\\Users\\yedou\\ddb",
   "local_ip": "127.0.0.1",
   "log_dir": ".ddb-logs\\control-plane",
   "state_dir": ".ddb-state",

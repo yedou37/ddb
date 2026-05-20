@@ -1,0 +1,25 @@
+﻿{
+    "targets":  [
+                    {
+                        "name":  "g1-n2",
+                        "runner":  "ddb-process",
+                        "pid":  44812,
+                        "log_path":  "c:\\Users\\yedou\\ddb\\.ddb-logs\\win-b\\g1-n2.log",
+                        "started_at":  "2026-05-19T22:15:23"
+                    },
+                    {
+                        "name":  "g2-n2",
+                        "runner":  "ddb-process",
+                        "pid":  19952,
+                        "log_path":  "c:\\Users\\yedou\\ddb\\.ddb-logs\\win-b\\g2-n2.log",
+                        "started_at":  "2026-05-19T22:15:27"
+                    },
+                    {
+                        "name":  "g3-n2",
+                        "runner":  "ddb-process",
+                        "pid":  41628,
+                        "log_path":  "c:\\Users\\yedou\\ddb\\.ddb-logs\\win-b\\g3-n2.log",
+                        "started_at":  "2026-05-19T22:15:31"
+                    }
+                ]
+}
