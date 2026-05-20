@@ -25,6 +25,10 @@ docker-data/
 
 default.etcd/
 
+.ddb-data/
+.ddb-state/
+.ddb-logs/
+
 # LaTeX compilation artifacts
 *.aux
 *.log

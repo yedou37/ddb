@@ -25,11 +25,9 @@
 
 ### 1. 控制平面配置
 
-复制：
+推荐直接编辑：
 
-```powershell
-copy .\configs\windows\three-machine\control-plane.sample.json .\configs\windows\control-plane.local.json
-```
+- `configs/windows/control-plane.local.json`
 
 一般只需要改：
 
@@ -44,20 +42,34 @@ copy .\configs\windows\three-machine\control-plane.sample.json .\configs\windows
 
 ### 2. 三份 shard 配置
 
-分别基于样例准备：
+推荐直接编辑这 3 份本地单机配置：
 
-- `configs/windows/three-machine/win-a.sample.json`
-- `configs/windows/three-machine/win-b.sample.json`
-- `configs/windows/three-machine/win-c.sample.json`
+- `configs/windows/three-machine/win-a.local.json`
+- `configs/windows/three-machine/win-b.local.json`
+- `configs/windows/three-machine/win-c.local.json`
 
 单机演示时建议你直接改这几项：
 
 - 三份配置都把 `project_root` 改成你的仓库目录
 - 三份配置都把 `local_ip` 改成 `127.0.0.1`
 - 三份配置都把 `etcd_host` 改成 `127.0.0.1`
-- `win-b.sample.json` / `win-c.sample.json` 里的 `default_join_host` 也改成 `127.0.0.1`
+- `win-b.local.json` / `win-c.local.json` 里的 `default_join_host` 也改成 `127.0.0.1`
 
 其余端口、节点名、`join_port`、`group_id` 一般不用动。
+
+注意：
+
+- 这份单机文档默认你使用 `*.local.json`
+- `three-machine/*.sample.json` 保留给通用三机样例，不建议在单机演示时直接改它们
+
+## 容易踩坑
+
+- `ddb-win-control.ps1` 默认读取 `configs/windows/control-plane.local.json`
+- `ddb-win.ps1` 默认读取 `configs/windows/local.json`，但这份单机方案统一显式传 `win-a.local.json` / `win-b.local.json` / `win-c.local.json`，不要混用默认 `local.json`
+- 4 份 `local` 配置里的 `project_root` 都要改，漏改任意一份都会在 `validate` 或 `start` 阶段失败
+- 必须先启动控制平面，再启动 3 份 shard 配置
+- 如果你之前跑过 demo，旧的 `.ddb-data` / `.ddb-state` / `.ddb-logs` 可能会影响这次录屏，建议先清理
+- 如果节点启动失败，优先看 `.ddb-logs\*.log` 和对应的 `.err.log`
 
 ## 演示前准备
 
@@ -73,6 +85,7 @@ copy .\configs\windows\three-machine\control-plane.sample.json .\configs\windows
 Get-Process ddb-server -ErrorAction SilentlyContinue | Stop-Process -Force
 docker rm -f ddb-etcd 2>$null
 docker rm -f api-1 2>$null
+Remove-Item -Recurse -Force .\.ddb-data,.\.ddb-state,.\.ddb-logs -ErrorAction SilentlyContinue
 ```
 
 ## 最稳主流程
@@ -82,6 +95,13 @@ docker rm -f api-1 2>$null
 ```powershell
 cd C:\ddb
 ```
+
+进入仓库后，先确认下面 4 个文件里的 `project_root` 都已经改成当前仓库路径：
+
+- `configs/windows/control-plane.local.json`
+- `configs/windows/three-machine/win-a.local.json`
+- `configs/windows/three-machine/win-b.local.json`
+- `configs/windows/three-machine/win-c.local.json`
 
 ### 2. 启动控制平面
 
@@ -100,9 +120,9 @@ cd C:\ddb
 按顺序执行：
 
 ```powershell
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.sample.json -Action start-all
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-b.sample.json -Action start-all
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-c.sample.json -Action start-all
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action start-all
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-b.local.json -Action start-all
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-c.local.json -Action start-all
 ```
 
 如果你想强调“分别启动节点”的过程，也可以改成逐个节点启动。
@@ -110,9 +130,9 @@ cd C:\ddb
 例如：
 
 ```powershell
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.sample.json -Action start -Name g1-n1
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.sample.json -Action start -Name g2-n1
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.sample.json -Action start -Name g3-n1
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action start -Name g1-n1
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action start -Name g2-n1
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action start -Name g3-n1
 ```
 
 ### 4. 打开 dashboard
@@ -125,6 +145,7 @@ start http://127.0.0.1:18100/dashboard/
 
 ```powershell
 .\scripts\ddb-win-control.ps1 -Action status
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action status
 Invoke-RestMethod -Uri "http://127.0.0.1:18100/health"
 ```
 
@@ -257,7 +278,7 @@ sql SELECT * FROM users WHERE id = 102
 先停一个节点：
 
 ```powershell
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.sample.json -Action stop -Name g1-n1
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action stop -Name g1-n1
 ```
 
 然后继续在交互模式里执行：
@@ -277,7 +298,7 @@ sql SELECT * FROM users WHERE id = 103
 恢复节点：
 
 ```powershell
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.sample.json -Action start -Name g1-n1
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action start -Name g1-n1
 ```
 
 等待几秒后，可以再验证一次：
@@ -311,9 +332,9 @@ sql SELECT * FROM users WHERE id = 103
 cd C:\ddb
 .\scripts\ddb-win-control.ps1 -Action validate
 .\scripts\ddb-win-control.ps1 -Action start
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.sample.json -Action start-all
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-b.sample.json -Action start-all
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-c.sample.json -Action start-all
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action start-all
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-b.local.json -Action start-all
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-c.local.json -Action start-all
 start http://127.0.0.1:18100/dashboard/
 Invoke-RestMethod -Uri "http://127.0.0.1:18100/health"
 .\bin\ddb-cli.exe --node-url=http://127.0.0.1:18100 interact
@@ -356,16 +377,15 @@ sql SELECT * FROM users WHERE id = 20
 sql INSERT INTO users VALUES (102, 'after-move-102')
 sql SELECT * FROM users WHERE id = 102
 ```
-```
 
 ## 收尾清理
 
 录完后建议按下面顺序清理：
 
 ```powershell
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-c.sample.json -Action stop-all
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-b.sample.json -Action stop-all
-.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.sample.json -Action stop-all
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-c.local.json -Action stop-all
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-b.local.json -Action stop-all
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action stop-all
 .\scripts\ddb-win-control.ps1 -Action stop
 ```
 

@@ -1,9 +1,9 @@
 {
   "machine_name": "win-c",
-  "project_root": "c:\\Users\\yedou\\ddb",
-  "local_ip": "127.0.0.1",
-  "etcd_host": "127.0.0.1",
-  "default_join_host": "127.0.0.1",
+  "project_root": "C:\\ddb",
+  "local_ip": "192.168.1.12",
+  "etcd_host": "192.168.1.10",
+  "default_join_host": "192.168.1.10",
   "log_dir": ".ddb-logs\\win-c",
   "state_dir": ".ddb-state",
   "build_server_binary": true,
