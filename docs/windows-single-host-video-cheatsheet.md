@@ -22,11 +22,6 @@ go build -o .\bin\ddb-server.exe .\cmd\server
 go build -o .\bin\ddb-cli.exe .\cmd\cli
 ```
 
-说明：
-
-- `ddb-win-control.ps1` / `ddb-win.ps1` 在缺少 `ddb-server.exe` 时会尝试自动编译
-- 但提前编译更稳，能避免第一次启动时再临时 build
-- `ddb-cli.exe` 不会被脚本自动编译，演示 `interact` / `inspect` 前最好先手工编译好
 
 ## 环境检测命令
 
@@ -118,7 +113,7 @@ Test-Path .\bin\ddb-cli.exe
 2. PowerShell 窗口 B：启动 shard 节点
 3. 浏览器窗口：展示 dashboard
 
-如果你想更稳一点，录屏前先做一次清理：
+录屏前先做一次清理：
 
 ```powershell
 Get-Process ddb-server -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -126,7 +121,7 @@ docker rm -f ddb-etcd 2>$null
 Remove-Item -Recurse -Force .\.ddb-data,.\.ddb-state,.\.ddb-logs -ErrorAction SilentlyContinue
 ```
 
-## 最稳主流程
+## 主流程
 
 ### 1. 进入仓库
 
@@ -172,7 +167,7 @@ cd C:\ddb
 .\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action start -Name g2-n1
 .\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action start -Name g3-n1
 ```
-
+然后也要分别启动g123的第n2n3共六个节点
 ### 4. 打开 dashboard
 
 ```powershell
@@ -211,7 +206,6 @@ sql INSERT INTO users VALUES (101, 'video-user-101')
 sql SELECT * FROM users WHERE id = 101
 ```
 
-讲解词建议：
 
 - 系统当前有 3 个 shard group
 - `apiserver` 是统一入口
@@ -259,7 +253,6 @@ sql SELECT * FROM users WHERE id = 201
 .\bin\ddb-cli.exe --node-url=http://127.0.0.1:21282 inspect "SELECT * FROM users WHERE id = 201"
 ```
 
-### 3. 讲解词建议
 
 - 这一步不再请求统一入口，而是直接请求具体 shard 节点
 - `inspect` 只看该节点本地存储里的数据
@@ -275,7 +268,7 @@ exit
 
 ## Dashboard 展示点
 
-建议在页面上依次展示：
+在页面上依次展示：
 
 1. `Cluster Topology`
 2. `Group Health`
@@ -289,9 +282,8 @@ exit
 3. 按 `id` 排序
 4. 展示刚才插入的 `101`
 
-## 可选扩展流程 A：展示分片迁移
+## 扩展流程 A：展示分片迁移
 
-如果你时间够，可以继续演示控制平面能力。
 
 进入交互模式后继续执行：
 
@@ -303,13 +295,12 @@ sql INSERT INTO users VALUES (102, 'after-move-102')
 sql SELECT * FROM users WHERE id = 102
 ```
 
-讲解词建议：
 
 - 这一步由控制平面修改 shard 归属
 - 迁移期间会有分片锁保护
 - 迁移完成后新请求会按新配置路由
 
-## 可选扩展流程 B：展示副本故障不影响整体服务
+## 扩展流程 B：展示副本故障不影响整体服务
 
 如果你想录“容错容灾”效果，可以额外做这一段。
 
@@ -328,7 +319,6 @@ sql INSERT INTO users VALUES (103, 'after-failure-103')
 sql SELECT * FROM users WHERE id = 103
 ```
 
-讲解词建议：
 
 - 单个 replica 节点故障后，副本组仍保留多数派
 - 因此系统仍可继续服务
@@ -346,25 +336,10 @@ control groups
 sql SELECT * FROM users WHERE id = 103
 ```
 
-## 录屏推荐顺序
 
-如果你要控制在 8 分钟左右，推荐下面这个版本：
+## 一次性复制
 
-1. 说明你准备了 4 个配置文件
-2. 启动控制平面
-3. 分别启动 3 份 shard 配置
-4. 打开 dashboard
-5. 进入 `interact`
-6. `control groups` / `control shards`
-7. `INSERT` / `SELECT`
-8. 页面里展示 `Table Browser`
-9. 插入一条数据后，分别 `inspect` 9 个节点
-10. 执行一次 `move-shard`
-11. 再做一次查询验证
-
-## 一次性复制版
-
-如果你想录屏时尽量少切换，可以直接按下面顺序复制：
+可以直接按下面顺序复制：
 
 ```powershell
 cd C:\ddb
@@ -418,7 +393,6 @@ sql SELECT * FROM users WHERE id = 102
 
 ## 收尾清理
 
-录完后建议按下面顺序清理：
 
 ```powershell
 .\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-c.local.json -Action stop-all
@@ -427,7 +401,7 @@ sql SELECT * FROM users WHERE id = 102
 .\scripts\ddb-win-control.ps1 -Action stop
 ```
 
-如果你只是想强制兜底清理：
+强制清理：
 
 ```powershell
 Get-Process ddb-server -ErrorAction SilentlyContinue | Stop-Process -Force

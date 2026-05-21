@@ -1,114 +1,202 @@
 # DDB / ShardDB
 
-A distributed database prototype built with Go, BoltDB, HashiCorp Raft, and etcd.
+一个基于 Go、BoltDB、HashiCorp Raft 和 etcd 的分布式数据库原型项目。
 
-The repository now contains two closely related layers:
+当前仓库包含两层紧密相关的能力：
 
-- a replicated single-group DDB
-- a ShardDB control plane and data plane with `controller`, `apiserver`, and multi-group shard replicas
+- 单副本组的复制型 DDB
+- 带 `controller`、`apiserver` 和多副本组分片能力的 ShardDB
 
-## Current Scope
+## 项目包含什么
 
-### Core Building Blocks
+### 核心构件
 
-- Raft-based replication inside each replica group
-- BoltDB-backed local state storage
-- etcd-based service discovery and leader lookup
-- explicit membership operations such as `remove` and `rejoin`
-- HTTP API, CLI, demo scripts, and dashboard
+- 每个副本组内部基于 Raft 做复制
+- 基于 BoltDB 的本地状态存储
+- 基于 etcd 的服务发现和控制平面元数据管理
+- 显式 membership 操作，例如 `remove` 和 `rejoin`
+- HTTP API、CLI、dashboard 和演示脚本
 
-### ShardDB Features
+### ShardDB 特性
 
-- role-based startup: `controller`, `apiserver`, `shard`
-- shared control-plane config via etcd
-- shard placement and shard-group metadata
-- `move-shard` and `rebalance`
-- migration safety using shard-level locks
-- retry semantics during migration with `503 + Retry-After`
-- a browser dashboard for topology, shard map, health, and table browsing
+- 按角色启动：`controller`、`apiserver`、`shard`
+- 通过 etcd 共享控制平面配置
+- shard 放置与 shard group 元数据管理
+- `move-shard` 和 `rebalance`
+- 通过 shard 级别锁保证迁移安全
+- 迁移期间通过 `503 + Retry-After` 暴露重试语义
+- 浏览器 dashboard，可展示拓扑、分片映射、group 健康状态和表数据
 
-## Supported SQL
+## 环境准备
 
-Current MVP SQL coverage:
+### 通用要求
 
-- `CREATE TABLE`
-- `INSERT INTO ... VALUES (...)`
-- `SELECT ... FROM ... [WHERE ...]`
-- `DELETE FROM ... WHERE ...`
-- `SHOW TABLES`
-- restricted equality `JOIN` support in ShardDB tests and coordinator flow
+在运行任何 demo 或课堂展示之前，先确保：
 
-Notes:
+- 已安装 Go
+- 仓库已拉到本地
+- `ddb-server` 和 `ddb-cli` 已编译
 
-- routing is primary-key oriented for the MVP path
-- migration safety is prioritized over transparent access during shard moves
-
-## Repository Layout
-
-- `cmd/server`: server entrypoint for all roles
-- `cmd/cli`: CLI entrypoint
-- `internal/api`: DDB HTTP handlers
-- `internal/apiserver`: ShardDB API server handlers and dashboard
-- `internal/app`: app assembly and lifecycle
-- `internal/config`: config parsing
-- `internal/controller`: control-plane logic and shard management
-- `internal/coordinator`: SQL routing and control-plane execution
-- `internal/discovery`: etcd integration
-- `internal/model`: shared API models
-- `internal/raftnode`: Raft node wrapper and FSM
-- `internal/router`: shard router
-- `internal/shardmeta`: shard metadata types
-- `internal/sql`: SQL parser
-- `internal/storage`: BoltDB storage
-- `scripts`: local demo scripts
-- `test/e2e`: in-process and black-box end-to-end tests
-- `docs`: demo and course-oriented runbooks
-
-## Quick Start
-
-### Build
+编译所需二进制：
 
 ```bash
 go build -o ./bin/ddb-server ./cmd/server
 go build -o ./bin/ddb-cli ./cmd/cli
 ```
 
-### Start Single-Host ShardDB Demo
+### macOS Requirements
 
-Clean the local demo environment:
+当前 macOS 单机脚本默认假设：
 
-```bash
-./scripts/demo-single-host-sharddb.sh cleanup-only
-```
+- 已安装本地 `etcd`
+- 本地 `etcd` 默认路径是 `/opt/homebrew/bin/etcd`
+- 控制平面配置文件是 `configs/macos/control-plane.local.json`
 
-Start the environment without built-in verification:
-
-```bash
-./scripts/demo-single-host-sharddb.sh start-only
-```
-
-Seed demo data into the running environment:
+建议先执行一遍快速检查：
 
 ```bash
-./scripts/demo-single-host-sharddb.sh seed-only
+go version
+/opt/homebrew/bin/etcd --version
+test -x ./bin/ddb-server && echo "ddb-server ok"
+test -x ./bin/ddb-cli && echo "ddb-cli ok"
+./scripts/ddb-mac-control.sh -Action validate
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.local.json -Action validate
 ```
 
-Open the dashboard:
+### Windows Requirements
+
+当前 Windows 单机脚本默认假设：
+
+- 已安装并启动 Docker Desktop
+- `etcd` 由控制平面脚本通过 Docker 启动
+- 控制平面配置文件是 `configs/windows/control-plane.local.json`
+
+建议先执行一遍快速检查：
+
+```powershell
+go version
+docker version
+docker info
+Test-Path .\bin\ddb-server.exe
+Test-Path .\bin\ddb-cli.exe
+.\scripts\ddb-win-control.ps1 -Action validate
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.local.json -Action validate
+```
+
+## 单机运行文档
+
+如果你是第一次验证环境，建议直接看下面两份 cheat sheet，而不是从脚本源码开始读。
+
+- [macOS 单机 cheat sheet](./docs/mac-single-host-video-cheatsheet.md)
+  - 使用 `scripts/ddb-mac-control.sh`
+  - 使用 `scripts/ddb-mac.sh`
+  - 默认读取 `configs/macos/control-plane.local.json`
+  - 默认使用 `configs/macos/three-machine/mac-a.local.json`、`mac-b.local.json`、`mac-c.local.json`
+- [Windows 单机 cheat sheet](./docs/windows-single-host-video-cheatsheet.md)
+  - 使用 `scripts/ddb-win-control.ps1`
+  - 使用 `scripts/ddb-win.ps1`
+  - 默认读取 `configs/windows/control-plane.local.json`
+  - 默认使用 `configs/windows/three-machine/win-a.local.json`、`win-b.local.json`、`win-c.local.json`
+
+这两份文档已经包含：
+
+- 预编译命令
+- 环境检测命令
+- 推荐启动顺序
+- dashboard 和 CLI 演示命令
+- 基于 inspect 的数据分布检查
+- 收尾清理命令
+
+## 多物理机运行说明
+
+这个仓库也支持在多台物理机上运行。推荐的基础拓扑是：
+
+- 一台机器负责控制平面
+- 三台机器分别运行 shard 配置 `a`、`b`、`c`
+- 每台机器只启动属于自己的那份配置
+
+### 应该使用哪些配置
+
+多机部署时，建议从 `three-machine` 目录下的样例配置出发：
+
+- macOS control plane: `configs/macos/three-machine/control-plane.sample.json`
+- macOS shard configs:
+  - `configs/macos/three-machine/mac-a.sample.json`
+  - `configs/macos/three-machine/mac-b.sample.json`
+  - `configs/macos/three-machine/mac-c.sample.json`
+- Windows control plane: `configs/windows/three-machine/control-plane.sample.json`
+- Windows shard configs:
+  - `configs/windows/three-machine/win-a.sample.json`
+  - `configs/windows/three-machine/win-b.sample.json`
+  - `configs/windows/three-machine/win-c.sample.json`
+
+### 一般只需要改哪些字段
+
+对于真实多机环境，最少通常只要修改：
+
+- 每台机器自己的 `project_root`
+- 每台机器自己的 `local_ip`
+- shard 配置里的 `etcd_host` 继续指向控制平面机器
+- 非 bootstrap 节点的 `default_join_host` 继续指向一个健康的 bootstrap 节点
+
+如果你沿用样例里的默认拓扑，上面这些字段通常就是主要改动项。
+
+### 网络要求
+
+所有机器之间必须网络互通。至少要确认以下端口可达：
+
+- `2379` for etcd
+- `18100` for the `apiserver`
+- shard HTTP ports such as `21080` to `21282`
+- shard Raft ports such as `22080` to `22282`
+
+### 启动顺序
+
+强烈建议按下面顺序启动：
+
+1. 先启动控制平面
+2. 等待 `etcd` 和 `apiserver` 健康
+3. 启动 bootstrap shard 所在机器
+4. 再启动剩余 shard 机器
+
+### 启动前校验
+
+每台机器正式启动前，都建议先执行对应平台的 `validate`：
+
+- macOS:
 
 ```bash
-open http://127.0.0.1:18100/dashboard/
+./scripts/ddb-mac-control.sh -Action validate
+./scripts/ddb-mac.sh -Config ./configs/macos/three-machine/mac-a.sample.json -Action validate
 ```
 
-The dashboard currently shows:
+- Windows:
 
-- cluster topology
-- node and group health
-- shard map and migrating shards
-- table browser with manual `SELECT *` loading
+```powershell
+.\scripts\ddb-win-control.ps1 -Action validate
+.\scripts\ddb-win.ps1 -Config .\configs\windows\three-machine\win-a.sample.json -Action validate
+```
 
-## CLI Examples
+## 当前支持的 SQL
 
-Inspect the control plane:
+当前 MVP 支持：
+
+- `CREATE TABLE`
+- `INSERT INTO ... VALUES (...)`
+- `SELECT ... FROM ... [WHERE ...]`
+- `DELETE FROM ... WHERE ...`
+- `SHOW TABLES`
+- 受限的等值 `JOIN`，已覆盖在 ShardDB 测试和 coordinator 路径中
+- 当前 coordinator 路径下的 `ORDER BY` 和 `LIMIT`
+
+说明：
+
+- 当前 MVP 路径主要按主键路由
+- shard 迁移期间优先保证迁移安全，而不是完全透明访问
+
+## CLI 示例
+
+查看控制平面：
 
 ```bash
 ./bin/ddb-cli --node-url=http://127.0.0.1:18100 control config
@@ -116,7 +204,7 @@ Inspect the control plane:
 ./bin/ddb-cli --node-url=http://127.0.0.1:18100 control shards
 ```
 
-Read and write application data:
+读写业务数据：
 
 ```bash
 ./bin/ddb-cli --node-url=http://127.0.0.1:18100 sql "CREATE TABLE users (id INT PRIMARY KEY, name TEXT)"
@@ -124,35 +212,27 @@ Read and write application data:
 ./bin/ddb-cli --node-url=http://127.0.0.1:18100 sql "SELECT * FROM users WHERE id = 1"
 ```
 
-Move one shard:
+迁移一个 shard：
 
 ```bash
 ./bin/ddb-cli --node-url=http://127.0.0.1:18100 control move-shard 6 g3
 ```
 
-Rebalance across groups:
+在多个 group 之间做 rebalance：
 
 ```bash
 ./bin/ddb-cli --node-url=http://127.0.0.1:18100 control rebalance g1 g2 g3
 ```
 
-Scale out to a new group and rebalance:
+## Membership 管理
 
-```bash
-./bin/ddb-cli --node-url=http://127.0.0.1:18100 control rebalance g1 g2 g3 g4
-```
-
-## Membership Management
-
-### Remove a Node
+移除一个节点：
 
 ```bash
 ./bin/ddb-cli --etcd=127.0.0.1:2379 cluster remove node3
 ```
 
-### Rejoin a Removed Node
-
-Start the node with `--rejoin=true`:
+让一个已移除节点重新加入：
 
 ```bash
 go run ./cmd/server \
@@ -165,99 +245,55 @@ go run ./cmd/server \
   --rejoin=true
 ```
 
-Then recover the logical member:
+然后恢复逻辑成员：
 
 ```bash
 go run ./cmd/cli --etcd=127.0.0.1:2379 cluster rejoin node3 127.0.0.1:20002 127.0.0.1:20082
 ```
 
-## Dashboard
+## 仓库结构
 
-The ShardDB dashboard is served directly by `apiserver` and uses polling from:
+- `cmd/server`：所有角色共用的 server 入口
+- `cmd/cli`：CLI 入口
+- `internal/apiserver`：ShardDB API server 和 dashboard
+- `internal/controller`：控制平面逻辑与 shard 管理
+- `internal/coordinator`：SQL 路由与控制平面执行
+- `internal/discovery`：etcd 集成
+- `internal/raftnode`：Raft 节点封装与 FSM
+- `internal/router`：shard 路由
+- `internal/sql`：SQL 解析
+- `internal/storage`：BoltDB 存储
+- `scripts`：本地和课堂演示脚本
+- `configs`：本地配置和多机样例配置
+- `docs`：演示文档和运行手册
+- `test/e2e`：in-process 和 black-box 端到端测试
 
-- `/dashboard/api/overview`
-- `/dashboard/api/table-data?table=<name>`
+## 测试
 
-Highlights:
-
-- no separate frontend build step
-- static assets embedded with `go:embed`
-- polling-based topology and health updates
-- manual table browsing to avoid heavy periodic data scans
-
-## Demo Scripts
-
-- `scripts/demo-single-host-sharddb.sh`
-  - `cleanup-only`
-  - `start-only`
-  - `verify-only`
-  - `seed-only`
-- `scripts/run-sharddb-node.sh`
-  - start one `controller`, `apiserver`, or `shard` process
-- `scripts/demo-local.sh`
-  - quick local flow
-- `scripts/demo-compose.sh`
-  - compose-based demo
-
-## Documentation
-
-- [single-host-sharddb-dashboard-demo.md](file:///Users/bytedance/dbd/docs/single-host-sharddb-dashboard-demo.md)
-  - single-host dashboard demo runbook
-- [sharddb-animation-design.md](file:///Users/bytedance/dbd/docs/sharddb-animation-design.md)
-  - animation design for AI-assisted coding and framework-rendered system explainer
-- [two-windows-sharddb-demo.md](file:///Users/bytedance/dbd/docs/two-windows-sharddb-demo.md)
-  - two-Windows physical-host ShardDB demo runbook
-- [three-machine-sharddb-demo.md](file:///Users/bytedance/dbd/docs/three-machine-sharddb-demo.md)
-  - recommended three-machine classroom demo topology
-- `docs/assignment.txt`
-  - course assignment requirements
-
-## Tests
-
-Run all tests:
+运行全部测试：
 
 ```bash
 go test ./...
 ```
 
-Run only e2e tests:
+只运行 e2e：
 
 ```bash
 go test ./test/e2e -v
 ```
 
-The repository now includes both:
+当前已覆盖的场景包括：
 
-- in-process e2e tests for fast regression coverage
-- black-box e2e tests that build `cmd/server`, spawn real processes, and validate real HTTP/Raft/discovery behavior
+- 复制与 leader failover
+- 多数派丢失时的拒绝写入
+- remove/rejoin 与追赶
+- 基于 discovery 的自动 join
+- 控制平面配置共享
+- apiserver 重启与配置重载
+- shard 迁移与 rebalance 流程
 
-Covered scenarios include:
+## 说明
 
-- replication and leader failover
-- quorum loss rejection
-- remove/rejoin and catch-up
-- discovery-based auto join
-- members state transitions
-- ShardDB control-plane config sharing
-- apiserver restart and config reload
-- shard movement and rebalance flows
-
-## Docker
-
-Build the image:
-
-```bash
-docker build -t ddb:latest .
-```
-
-Bring up the compose environment:
-
-```bash
-docker compose up --build
-```
-
-## Notes
-
-- The current course demo recommendation is a single control-plane instance plus multiple shard groups.
-- The main availability story is in shard replica groups, not in a multi-controller HA control plane.
-- The dashboard is intended for live demos and observability, not for production-grade administration.
+- 当前课程展示最推荐的形态，是一个控制平面实例加多个 shard group。
+- 当前系统的主要可用性故事在 shard 副本组，而不是多控制器高可用控制平面。
+- dashboard 的定位是演示和观测，不是生产级管理后台。
