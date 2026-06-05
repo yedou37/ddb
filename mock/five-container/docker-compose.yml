@@ -1,0 +1,69 @@
+services:
+  t9-ct1:
+    image: alpine:3.20
+    container_name: t9-ct1
+    hostname: t9-ct1
+    command: ["sh", "-lc", "mkdir -p /data /logs && while true; do sleep 3600; done"]
+    volumes:
+      - ../../.mock-data/five-container/t9-ct1:/data
+      - ../../.mock-logs/five-container/t9-ct1:/logs
+    networks:
+      five-container-net:
+        ipv4_address: 10.10.9.1
+
+  t9-ct2:
+    image: alpine:3.20
+    container_name: t9-ct2
+    hostname: t9-ct2
+    command: ["sh", "-lc", "mkdir -p /data /logs && while true; do sleep 3600; done"]
+    volumes:
+      - ../../.mock-data/five-container/t9-ct2:/data
+      - ../../.mock-logs/five-container/t9-ct2:/logs
+    networks:
+      five-container-net:
+        ipv4_address: 10.10.9.2
+
+  t9-ct3:
+    image: alpine:3.20
+    container_name: t9-ct3
+    hostname: t9-ct3
+    command: ["sh", "-lc", "mkdir -p /data /logs && while true; do sleep 3600; done"]
+    volumes:
+      - ../../.mock-data/five-container/t9-ct3:/data
+      - ../../.mock-logs/five-container/t9-ct3:/logs
+    networks:
+      five-container-net:
+        ipv4_address: 10.10.9.3
+
+  t9-ct4:
+    image: alpine:3.20
+    container_name: t9-ct4
+    hostname: t9-ct4
+    command: ["sh", "-lc", "mkdir -p /data /logs && while true; do sleep 3600; done"]
+    volumes:
+      - ../../.mock-data/five-container/t9-ct4:/data
+      - ../../.mock-logs/five-container/t9-ct4:/logs
+    networks:
+      five-container-net:
+        ipv4_address: 10.10.9.4
+
+  t9-ct5:
+    image: alpine:3.20
+    container_name: t9-ct5
+    hostname: t9-ct5
+    command: ["sh", "-lc", "mkdir -p /data /logs && while true; do sleep 3600; done"]
+    volumes:
+      - ../../.mock-data/five-container/t9-ct5:/data
+      - ../../.mock-logs/five-container/t9-ct5:/logs
+    networks:
+      five-container-net:
+        ipv4_address: 10.10.9.5
+
+networks:
+  five-container-net:
+    name: ddb-five-container-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.9.0/24
+          gateway: 10.10.9.254

@@ -29,6 +29,8 @@ default.etcd/
 .ddb-state/
 .ddb-logs/
 .ddb-control/
+.mock-data/
+.mock-logs/
 # LaTeX compilation artifacts
 *.aux
 *.log
