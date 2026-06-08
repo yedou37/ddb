@@ -20,6 +20,7 @@
 - `ddb-cli` 放在控制面机器上运行
 - 所有 `inspect` 操作也在控制面机器上执行
 - 本地提前编译 `linux/amd64` 二进制，再上传到云服务器
+- cloud sample 模板默认按 `3 group × 5 replica` 组织，可按需删减回 `3 group × 3 replica`
 
 推荐资源规格：
 
@@ -48,6 +49,27 @@
   - `g3-n3`
 
 也就是说，控制面机器不仅承担控制平面，还承担每个 group 的一个 bootstrap 节点。
+
+当前 `configs/cloud/*.sample.json` 已经给出一个 `3 group × 5 replica` 的分布示例：
+
+- `node-a.sample.json`
+  - `g1-n1`
+  - `g2-n1`
+  - `g3-n1`
+  - `g1-n4`
+  - `g2-n4`
+- `node-b.sample.json`
+  - `g1-n2`
+  - `g2-n2`
+  - `g3-n2`
+  - `g3-n4`
+  - `g1-n5`
+- `node-c.sample.json`
+  - `g1-n3`
+  - `g2-n3`
+  - `g3-n3`
+  - `g2-n5`
+  - `g3-n5`
 
 ## 网络建议
 
@@ -111,6 +133,22 @@
 /opt/ddb/bin/ddb-server
 /opt/ddb/bin/ddb-cli
 /opt/ddb/bin/etcd
+```
+
+建议把本仓库里的下面这些文件也一起上传到控制面机器，再从控制面机器分发到另外两台：
+
+- `scripts/ddb-cloud-control.sh`
+- `scripts/ddb-cloud-node.sh`
+- `configs/cloud/control-plane.sample.json`
+- `configs/cloud/node-a.sample.json`
+- `configs/cloud/node-b.sample.json`
+- `configs/cloud/node-c.sample.json`
+
+推荐放到：
+
+```text
+/opt/ddb/scripts/
+/opt/ddb/configs/
 ```
 
 ## 本地需要准备什么
@@ -199,7 +237,111 @@ ssh ubuntu@<node-b-internal-ip> 'chmod +x /opt/ddb/bin/ddb-server /opt/ddb/bin/d
 ssh ubuntu@<node-c-internal-ip> 'chmod +x /opt/ddb/bin/ddb-server /opt/ddb/bin/ddb-cli'
 ```
 
+脚本和配置模板也建议一起传：
+
+```bash
+scp ./scripts/ddb-cloud-control.sh ubuntu@<control-public-ip>:/opt/ddb/scripts/
+scp ./scripts/ddb-cloud-node.sh ubuntu@<control-public-ip>:/opt/ddb/scripts/
+scp ./configs/cloud/*.sample.json ubuntu@<control-public-ip>:/opt/ddb/configs/
+ssh ubuntu@<control-public-ip> 'chmod +x /opt/ddb/scripts/ddb-cloud-control.sh /opt/ddb/scripts/ddb-cloud-node.sh'
+```
+
+然后在控制面机器上复制出真正要用的配置：
+
+```bash
+cp /opt/ddb/configs/control-plane.sample.json /opt/ddb/configs/control-plane.json
+cp /opt/ddb/configs/node-a.sample.json /opt/ddb/configs/node-a.json
+cp /opt/ddb/configs/node-b.sample.json /opt/ddb/configs/node-b.json
+cp /opt/ddb/configs/node-c.sample.json /opt/ddb/configs/node-c.json
+```
+
+你只需要把这 4 份配置里的占位值替换掉：
+
+- `<control-private-ip>`
+- `<node-b-private-ip>`
+- `<node-c-private-ip>`
+
+如果 `install_root` 不是 `/opt/ddb`，也一起改掉。
+
 ## 如何启动程序
+
+### 用脚本启动
+
+推荐直接用新脚本，不要现场手敲长命令。
+
+控制面机器先执行：
+
+```bash
+/opt/ddb/scripts/ddb-cloud-control.sh -Config /opt/ddb/configs/control-plane.json -Action validate
+/opt/ddb/scripts/ddb-cloud-control.sh -Config /opt/ddb/configs/control-plane.json -Action start
+```
+
+然后同一台机器继续启动本机承载的 bootstrap shard：
+
+```bash
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-a.json -Action validate
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-a.json -Action start-all
+```
+
+接着从控制面机器 SSH 到 `node-b`，执行：
+
+```bash
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-b.json -Action validate
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-b.json -Action start-all
+```
+
+最后 SSH 到 `node-c`，执行：
+
+```bash
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-c.json -Action validate
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-c.json -Action start-all
+```
+
+常用动作包括：
+
+- `validate`
+- `status`
+- `start`
+- `stop`
+- `restart`
+- `join`
+- `remove`
+- `start-all`
+- `stop-all`
+- `restart-all`
+- `join-all`
+
+语义建议这样理解：
+
+- `start/stop`
+  - 只负责进程启停
+  - 适合已经在副本组里的节点做宕机/恢复演示
+- `join`
+  - 用于让一个新节点加入副本组
+  - 默认依赖 `etcd` 自动发现当前 leader，不再写死 bootstrap 地址
+  - 适合第一次拉起 follower，或新增 `n4/n5`
+- `remove`
+  - 用于把节点从副本组成员关系中移除
+  - 脚本内部会调用 `ddb-cli cluster remove`
+  - 成功后会顺手停掉对应进程
+
+如果只想单独操作某一个 shard，可以这样：
+
+```bash
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-b.json -Action restart -Name g1-n2
+```
+
+如果要把一个新节点加入某个副本组，可以这样：
+
+```bash
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-b.json -Action join -Name g1-n5
+```
+
+如果要把它永久移出副本组：
+
+```bash
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-b.json -Action remove -Name g1-n5
+```
 
 ### 登录方式
 
@@ -226,20 +368,29 @@ nohup <command> >/opt/ddb/logs/<name>.log 2>&1 &
 顺序建议固定，不要现场改：
 
 1. 控制面机器启动 `etcd`
-2. 控制面机器启动 `g1-n1`、`g2-n1`、`g3-n1`
+2. 控制面机器启动本机 bootstrap shard
 3. 控制面机器启动 `apiserver`
-4. `node-b` 启动 `g1-n2`、`g2-n2`、`g3-n2`
-5. `node-c` 启动 `g1-n3`、`g2-n3`、`g3-n3`
+4. `node-b`、`node-c` 上的 follower 通过 `join` 加入各自副本组
+
+对应到脚本动作可以理解成：
+
+1. `ddb-cloud-control.sh ... -Action start`
+2. `node-a.json` 用 `start-all`
+3. `node-b.json` 和 `node-c.json` 首次部署时用 `join-all`
+
+后续如果只是模拟节点宕机恢复，就不要再用 `join`，而是直接 `start` 或 `restart`。
 
 ### 为什么 follower 放后面
 
-因为 `g1-n2/g1-n3` 这类 follower 要 join 已经存在的 bootstrap leader。
+因为 `g1-n2/g1-n3` 这类 follower 要先等各自副本组已经选出 leader。
 
 当前三机预设里：
 
-- `g1-n2`、`g1-n3` 需要 join `g1-n1`
-- `g2-n2`、`g2-n3` 需要 join `g2-n1`
-- `g3-n2`、`g3-n3` 需要 join `g3-n1`
+- follower 启动时只要配置了 `etcd`
+- 并且对应副本组已经有可用 leader
+- 节点就会通过 etcd 自动发现 leader 再发起 join
+
+这样即使最初的 bootstrap 节点停了，只要该副本组仍然保持 quorum 并重新选主，新的 follower 仍然可以继续加入。
 
 ## `ddb-cli` 应该放哪
 
@@ -290,7 +441,7 @@ nohup <command> >/opt/ddb/logs/<name>.log 2>&1 &
 
 - 二进制架构编错，例如上传了 macOS 二进制或 `arm64` 到 `amd64` 机器
 - 配置里混用了公网 IP 和内网 IP
-- follower 比 leader 更早启动，导致 join 失败
+- follower 比 leader 更早启动，或者副本组尚未完成选主，导致 join 失败
 - 只开了公网 `22`，但内网安全组没放通 shard/raft 端口
 - `ddb-cli` 放在本地演示机上直接打 node，结果本地根本访问不到数据机内网
 - 只用前台 shell 起进程，断线后进程一起没了

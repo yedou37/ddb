@@ -254,18 +254,16 @@ func (a *App) discoverLeaderHTTP(ctx context.Context) (string, error) {
 			continue
 		}
 		for _, node := range nodes {
-			if node.ID == a.cfg.NodeID || node.HTTPAddr == "" {
+			if !a.isJoinCandidate(node) {
 				continue
 			}
 			if node.IsLeader {
 				return node.HTTPAddr, nil
 			}
 		}
-		if len(nodes) > 0 {
-			for _, node := range nodes {
-				if node.ID != a.cfg.NodeID && node.HTTPAddr != "" {
-					return node.HTTPAddr, nil
-				}
+		for _, node := range nodes {
+			if a.isJoinCandidate(node) {
+				return node.HTTPAddr, nil
 			}
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -275,6 +273,21 @@ func (a *App) discoverLeaderHTTP(ctx context.Context) (string, error) {
 		return "", lastErr
 	}
 	return "", context.DeadlineExceeded
+}
+
+func (a *App) isJoinCandidate(node model.NodeInfo) bool {
+	if node.ID == a.cfg.NodeID || node.HTTPAddr == "" {
+		return false
+	}
+	if a.cfg.Role.OrDefault() == shardmeta.RoleShardNode {
+		if node.Role != string(shardmeta.RoleShardNode) {
+			return false
+		}
+		if a.cfg.GroupID != "" && node.GroupID != a.cfg.GroupID {
+			return false
+		}
+	}
+	return true
 }
 
 func discoverBootstrapGroups(ctx context.Context, discoveryClient *discovery.Client) ([]shardmeta.GroupID, error) {

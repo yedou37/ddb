@@ -208,6 +208,321 @@ func TestProcessAutoDiscoveryJoinAfterLeaderFailover(t *testing.T) {
 	waitForNamedRowCountWithin(t, http4, "process_discovery_books", 3, 25*time.Second)
 }
 
+func TestProcessDemoFlowServiceDiscoveryAndAddNode(t *testing.T) {
+	etcd := startEmbeddedEtcd(t)
+
+	g1n1HTTP, g1n1Raft := reserveAddr(t), reserveAddr(t)
+	g2n1HTTP, g2n1Raft := reserveAddr(t), reserveAddr(t)
+	g3n1HTTP, g3n1Raft := reserveAddr(t), reserveAddr(t)
+	g1n2HTTP, g1n2Raft := reserveAddr(t), reserveAddr(t)
+	controllerHTTP, controllerRaft := reserveAddr(t), reserveAddr(t)
+	apiHTTP, apiRaft := reserveAddr(t), reserveAddr(t)
+
+	baseDir := t.TempDir()
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "g1-n1",
+		Role:          shardmeta.RoleShardNode,
+		GroupID:       "g1",
+		HTTPAddr:      g1n1HTTP,
+		RaftAddr:      g1n1Raft,
+		RaftDir:       filepath.Join(baseDir, "raft-g1-n1"),
+		DBPath:        filepath.Join(baseDir, "db-g1-n1.db"),
+		Bootstrap:     true,
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "g2-n1",
+		Role:          shardmeta.RoleShardNode,
+		GroupID:       "g2",
+		HTTPAddr:      g2n1HTTP,
+		RaftAddr:      g2n1Raft,
+		RaftDir:       filepath.Join(baseDir, "raft-g2-n1"),
+		DBPath:        filepath.Join(baseDir, "db-g2-n1.db"),
+		Bootstrap:     true,
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "g3-n1",
+		Role:          shardmeta.RoleShardNode,
+		GroupID:       "g3",
+		HTTPAddr:      g3n1HTTP,
+		RaftAddr:      g3n1Raft,
+		RaftDir:       filepath.Join(baseDir, "raft-g3-n1"),
+		DBPath:        filepath.Join(baseDir, "db-g3-n1.db"),
+		Bootstrap:     true,
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	waitForHealthWithin(t, g1n1HTTP, 30*time.Second)
+	waitForHealthWithin(t, g2n1HTTP, 30*time.Second)
+	waitForHealthWithin(t, g3n1HTTP, 30*time.Second)
+	waitForLeader(t, g1n1HTTP)
+	waitForLeader(t, g2n1HTTP)
+	waitForLeader(t, g3n1HTTP)
+
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "ctrl-1",
+		Role:          shardmeta.RoleController,
+		HTTPAddr:      controllerHTTP,
+		RaftAddr:      controllerRaft,
+		RaftDir:       filepath.Join(baseDir, "raft-controller"),
+		DBPath:        filepath.Join(baseDir, "controller.db"),
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "api-1",
+		Role:          shardmeta.RoleAPIServer,
+		HTTPAddr:      apiHTTP,
+		RaftAddr:      apiRaft,
+		RaftDir:       filepath.Join(baseDir, "raft-apiserver"),
+		DBPath:        filepath.Join(baseDir, "apiserver.db"),
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	waitForHealthWithin(t, controllerHTTP, 30*time.Second)
+	waitForHealthWithin(t, apiHTTP, 30*time.Second)
+
+	apiURL := "http://" + apiHTTP
+	routeEngine, err := router.New(shardmeta.DefaultTotalShards)
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	waitForGroupNodeWithin(t, apiURL, "g1", "g1-n1", 25*time.Second)
+	waitForGroupNodeWithin(t, apiURL, "g2", "g2-n1", 25*time.Second)
+	waitForGroupNodeWithin(t, apiURL, "g3", "g3-n1", 25*time.Second)
+
+	configBefore := controlGetJSON[shardmeta.ClusterConfig](t, apiURL+"/config")
+	controlExecSQL(t, apiURL, "CREATE TABLE demo_users (id INT PRIMARY KEY, name TEXT)")
+	key, shardID, _ := findKeyForGroup(t, routeEngine, configBefore, "demo_users", "g1")
+	otherKey := findAnotherKeyForShard(t, routeEngine, configBefore, "demo_users", shardID, key)
+	controlExecSQL(t, apiURL, buildInsertStatement("demo_users", []any{key, "before-join"}))
+	waitForNamedRowCountWithin(t, g1n1HTTP, "demo_users", 1, 20*time.Second)
+
+	node4 := startDetachedServerProcess(t, config.ServerConfig{
+		NodeID:        "g1-n2",
+		Role:          shardmeta.RoleShardNode,
+		GroupID:       "g1",
+		HTTPAddr:      g1n2HTTP,
+		RaftAddr:      g1n2Raft,
+		RaftDir:       filepath.Join(baseDir, "raft-g1-n2"),
+		DBPath:        filepath.Join(baseDir, "db-g1-n2.db"),
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	t.Cleanup(func() {
+		node4.stop(t)
+	})
+	waitForProcessHealthWithin(t, node4, g1n2HTTP, 30*time.Second)
+
+	waitForMemberCountWithin(t, g1n1HTTP, 2, 25*time.Second)
+	waitForGroupNodeWithin(t, apiURL, "g1", "g1-n2", 25*time.Second)
+	waitForNamedRowCountWithin(t, g1n2HTTP, "demo_users", 1, 25*time.Second)
+
+	controlExecSQL(t, apiURL, buildInsertStatement("demo_users", []any{otherKey, "after-join"}))
+	waitForNamedRowCountWithin(t, g1n1HTTP, "demo_users", 2, 25*time.Second)
+	waitForNamedRowCountWithin(t, g1n2HTTP, "demo_users", 2, 25*time.Second)
+
+	result := controlExecSQL(t, apiURL, buildSelectByID("demo_users", otherKey))
+	if got, want := len(result.Result.Rows), 1; got != want {
+		t.Fatalf("len(result.Result.Rows) = %d, want %d", got, want)
+	}
+}
+
+func TestProcessDemoFullFlow(t *testing.T) {
+	etcd := startEmbeddedEtcd(t)
+
+	g1n1HTTP, g1n1Raft := reserveAddr(t), reserveAddr(t)
+	g2n1HTTP, g2n1Raft := reserveAddr(t), reserveAddr(t)
+	g3n1HTTP, g3n1Raft := reserveAddr(t), reserveAddr(t)
+	g1n2HTTP, g1n2Raft := reserveAddr(t), reserveAddr(t)
+	g1n3HTTP, g1n3Raft := reserveAddr(t), reserveAddr(t)
+	controllerHTTP, controllerRaft := reserveAddr(t), reserveAddr(t)
+	apiHTTP, apiRaft := reserveAddr(t), reserveAddr(t)
+
+	baseDir := t.TempDir()
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "g1-n1",
+		Role:          shardmeta.RoleShardNode,
+		GroupID:       "g1",
+		HTTPAddr:      g1n1HTTP,
+		RaftAddr:      g1n1Raft,
+		RaftDir:       filepath.Join(baseDir, "raft-g1-n1"),
+		DBPath:        filepath.Join(baseDir, "db-g1-n1.db"),
+		Bootstrap:     true,
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "g2-n1",
+		Role:          shardmeta.RoleShardNode,
+		GroupID:       "g2",
+		HTTPAddr:      g2n1HTTP,
+		RaftAddr:      g2n1Raft,
+		RaftDir:       filepath.Join(baseDir, "raft-g2-n1"),
+		DBPath:        filepath.Join(baseDir, "db-g2-n1.db"),
+		Bootstrap:     true,
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "g3-n1",
+		Role:          shardmeta.RoleShardNode,
+		GroupID:       "g3",
+		HTTPAddr:      g3n1HTTP,
+		RaftAddr:      g3n1Raft,
+		RaftDir:       filepath.Join(baseDir, "raft-g3-n1"),
+		DBPath:        filepath.Join(baseDir, "db-g3-n1.db"),
+		Bootstrap:     true,
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	waitForHealthWithin(t, g1n1HTTP, 30*time.Second)
+	waitForHealthWithin(t, g2n1HTTP, 30*time.Second)
+	waitForHealthWithin(t, g3n1HTTP, 30*time.Second)
+	waitForLeader(t, g1n1HTTP)
+	waitForLeader(t, g2n1HTTP)
+	waitForLeader(t, g3n1HTTP)
+
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "ctrl-1",
+		Role:          shardmeta.RoleController,
+		HTTPAddr:      controllerHTTP,
+		RaftAddr:      controllerRaft,
+		RaftDir:       filepath.Join(baseDir, "raft-controller"),
+		DBPath:        filepath.Join(baseDir, "controller.db"),
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	_ = startServerProcess(t, config.ServerConfig{
+		NodeID:        "api-1",
+		Role:          shardmeta.RoleAPIServer,
+		HTTPAddr:      apiHTTP,
+		RaftAddr:      apiRaft,
+		RaftDir:       filepath.Join(baseDir, "raft-apiserver"),
+		DBPath:        filepath.Join(baseDir, "apiserver.db"),
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	})
+	waitForHealthWithin(t, controllerHTTP, 30*time.Second)
+	waitForHealthWithin(t, apiHTTP, 30*time.Second)
+
+	controllerURL := "http://" + controllerHTTP
+	apiURL := "http://" + apiHTTP
+	routeEngine, err := router.New(shardmeta.DefaultTotalShards)
+	if err != nil {
+		t.Fatalf("router.New() error = %v", err)
+	}
+
+	waitForGroupNodeWithin(t, apiURL, "g1", "g1-n1", 25*time.Second)
+	waitForGroupNodeWithin(t, apiURL, "g2", "g2-n1", 25*time.Second)
+	waitForGroupNodeWithin(t, apiURL, "g3", "g3-n1", 25*time.Second)
+	initialGroups := controlGetJSON[[]model.GroupStatus](t, apiURL+"/groups")
+	if len(initialGroups) < 3 {
+		t.Fatalf("len(initialGroups) = %d, want at least 3", len(initialGroups))
+	}
+	initialShards := controlGetJSON[model.ShardsResponse](t, apiURL+"/shards")
+	if len(initialShards.Assignments) == 0 {
+		t.Fatalf("initial shard assignments = empty")
+	}
+
+	controlExecSQL(t, apiURL, "CREATE TABLE demo_flow_users (id INT PRIMARY KEY, name TEXT)")
+	configBefore := controlGetJSON[shardmeta.ClusterConfig](t, apiURL+"/config")
+	key1, shardID, _ := findKeyForGroup(t, routeEngine, configBefore, "demo_flow_users", "g1")
+	key2 := findAnotherKeyForShard(t, routeEngine, configBefore, "demo_flow_users", shardID, key1)
+	key3 := findThirdKeyForShard(t, routeEngine, configBefore, "demo_flow_users", shardID, key1, key2)
+	controlExecSQL(t, apiURL, buildInsertStatement("demo_flow_users", []any{key1, "before-join"}))
+	waitForNamedRowCountWithin(t, g1n1HTTP, "demo_flow_users", 1, 20*time.Second)
+	inspectBeforeJoin := execSQL(t, g1n1HTTP, buildSelectByID("demo_flow_users", key1))
+	if got, want := len(inspectBeforeJoin.Result.Rows), 1; got != want {
+		t.Fatalf("len(inspectBeforeJoin.Result.Rows) = %d, want %d", got, want)
+	}
+
+	follower1Cfg := config.ServerConfig{
+		NodeID:        "g1-n2",
+		Role:          shardmeta.RoleShardNode,
+		GroupID:       "g1",
+		HTTPAddr:      g1n2HTTP,
+		RaftAddr:      g1n2Raft,
+		RaftDir:       filepath.Join(baseDir, "raft-g1-n2"),
+		DBPath:        filepath.Join(baseDir, "db-g1-n2.db"),
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	}
+	follower2Cfg := config.ServerConfig{
+		NodeID:        "g1-n3",
+		Role:          shardmeta.RoleShardNode,
+		GroupID:       "g1",
+		HTTPAddr:      g1n3HTTP,
+		RaftAddr:      g1n3Raft,
+		RaftDir:       filepath.Join(baseDir, "raft-g1-n3"),
+		DBPath:        filepath.Join(baseDir, "db-g1-n3.db"),
+		ETCDEndpoints: []string{etcd.clientEndpoint},
+	}
+	var follower1, follower2 *processNode
+	follower1 = startDetachedServerProcess(t, follower1Cfg)
+	t.Cleanup(func() {
+		follower1.stop(t)
+		follower2.stop(t)
+	})
+	waitForProcessHealthWithin(t, follower1, g1n2HTTP, 30*time.Second)
+	waitForMemberCountWithin(t, g1n1HTTP, 2, 25*time.Second)
+	waitForGroupNodeWithin(t, apiURL, "g1", "g1-n2", 25*time.Second)
+	waitForNamedRowCountWithin(t, g1n2HTTP, "demo_flow_users", 1, 25*time.Second)
+
+	follower2 = startDetachedServerProcess(t, follower2Cfg)
+	waitForProcessHealthWithin(t, follower2, g1n3HTTP, 30*time.Second)
+	waitForMemberCountWithin(t, g1n1HTTP, 3, 25*time.Second)
+	waitForGroupNodeWithin(t, apiURL, "g1", "g1-n3", 25*time.Second)
+	waitForNamedRowCountWithin(t, g1n3HTTP, "demo_flow_users", 1, 25*time.Second)
+
+	follower1.stop(t)
+	waitForWriteSuccess(t, []string{g1n1HTTP, g1n3HTTP}, buildInsertStatement("demo_flow_users", []any{key2, "while-follower-down"}))
+	waitForNamedRowCountWithin(t, g1n1HTTP, "demo_flow_users", 2, 20*time.Second)
+	waitForNamedRowCountWithin(t, g1n3HTTP, "demo_flow_users", 2, 20*time.Second)
+	waitForMemberStatusOnAnyWithin(t, []string{g1n1HTTP, g1n3HTTP}, "g1-n2", func(member model.ClusterMember) bool {
+		return !member.Online && member.Status == "offline-voter"
+	}, 20*time.Second)
+
+	follower1 = startDetachedServerProcess(t, follower1Cfg)
+	waitForProcessHealthWithin(t, follower1, g1n2HTTP, 30*time.Second)
+	waitForNamedRowCountWithin(t, g1n2HTTP, "demo_flow_users", 2, 25*time.Second)
+
+	postJSON(t, "http://"+g1n1HTTP+"/remove", model.RemoveRequest{NodeID: "g1-n2"})
+	waitForMemberStatusOnAnyWithin(t, []string{g1n1HTTP, g1n2HTTP, g1n3HTTP}, "g1-n2", func(member model.ClusterMember) bool {
+		return !member.InRaft && member.Removed && member.Status == "removed"
+	}, 25*time.Second)
+	follower1.stop(t)
+
+	waitForWriteSuccess(t, []string{g1n1HTTP, g1n3HTTP}, buildInsertStatement("demo_flow_users", []any{key3, "while-removed"}))
+	waitForNamedRowCountWithin(t, g1n1HTTP, "demo_flow_users", 3, 20*time.Second)
+	waitForNamedRowCountWithin(t, g1n3HTTP, "demo_flow_users", 3, 20*time.Second)
+
+	restartWithoutRejoin := startDetachedServerProcess(t, follower1Cfg)
+	exitCode, logs := waitForProcessExitWithin(t, restartWithoutRejoin, 10*time.Second)
+	if exitCode == 0 {
+		t.Fatalf("removed follower restarted without --rejoin unexpectedly succeeded; logs:\n%s", logs)
+	}
+
+	rejoinCfg := follower1Cfg
+	rejoinCfg.Rejoin = true
+	follower1 = startDetachedServerProcess(t, rejoinCfg)
+	waitForProcessHealthWithin(t, follower1, g1n2HTTP, 30*time.Second)
+	waitForMemberStatusOnAnyWithin(t, []string{g1n1HTTP, g1n2HTTP, g1n3HTTP}, "g1-n2", func(member model.ClusterMember) bool {
+		return member.InRaft && member.Online && !member.Removed && member.Status == "online-voter"
+	}, 25*time.Second)
+	waitForNamedRowCountWithin(t, g1n2HTTP, "demo_flow_users", 3, 25*time.Second)
+
+	moveShard(t, controllerURL, shardID, "g3")
+	waitForShardAssignmentWithin(t, apiURL, shardID, "g3", 25*time.Second)
+	waitForNamedRowCountWithin(t, g3n1HTTP, "demo_flow_users", 3, 25*time.Second)
+	waitForNamedRowCountWithin(t, g1n1HTTP, "demo_flow_users", 0, 25*time.Second)
+
+	finalGroups := controlGetJSON[[]model.GroupStatus](t, apiURL+"/groups")
+	if !groupContainsShard(finalGroups, "g3", uint32(shardID)) {
+		t.Fatalf("group g3 did not report moved shard %d", shardID)
+	}
+	finalSelect := controlExecSQL(t, apiURL, buildSelectByID("demo_flow_users", key3))
+	if got, want := len(finalSelect.Result.Rows), 1; got != want {
+		t.Fatalf("len(finalSelect.Result.Rows) = %d, want %d", got, want)
+	}
+	inspectAfterMove := execSQL(t, g3n1HTTP, buildSelectByID("demo_flow_users", key2))
+	if got, want := len(inspectAfterMove.Result.Rows), 1; got != want {
+		t.Fatalf("len(inspectAfterMove.Result.Rows) = %d, want %d", got, want)
+	}
+}
+
 func TestProcessRemovedNodeRejoinsAndCatchesUp(t *testing.T) {
 	etcd := startEmbeddedEtcd(t)
 
@@ -799,4 +1114,43 @@ func groupContainsShard(groups []model.GroupStatus, groupID string, shardID uint
 		return slices.Contains(group.Shards, shardID)
 	}
 	return false
+}
+
+func waitForGroupNodeWithin(t *testing.T, baseURL, groupID, nodeID string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		groups := controlGetJSON[[]model.GroupStatus](t, baseURL+"/groups")
+		for _, group := range groups {
+			if group.GroupID != groupID {
+				continue
+			}
+			for _, node := range group.Nodes {
+				if node.ID == nodeID {
+					return
+				}
+			}
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	t.Fatalf("group %s did not report node %s within %s", groupID, nodeID, timeout)
+}
+
+func findThirdKeyForShard(t *testing.T, routeEngine *router.Router, config shardmeta.ClusterConfig, table string, shardID shardmeta.ShardID, excludeA, excludeB int) int {
+	t.Helper()
+	for key := 1; key < 512; key++ {
+		if key == excludeA || key == excludeB {
+			continue
+		}
+		result, err := routeEngine.Route(table, key, config)
+		if err != nil {
+			t.Fatalf("routeEngine.Route(%d) error = %v", key, err)
+		}
+		if result.ShardID == shardID {
+			return key
+		}
+	}
+	t.Fatalf("no third key found for shard %d", shardID)
+	return 0
 }
