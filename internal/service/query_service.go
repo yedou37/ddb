@@ -52,6 +52,10 @@ func (s *QueryService) Execute(ctx context.Context, input string) (model.QueryRe
 	}
 
 	if isWrite(statement.Type) {
+		statement, err = sqlparser.MaterializeWriteStatement(statement)
+		if err != nil {
+			return model.QueryResult{}, err
+		}
 		if s.raftNode == nil {
 			return s.store.ExecuteStatement(statement)
 		}
@@ -59,7 +63,7 @@ func (s *QueryService) Execute(ctx context.Context, input string) (model.QueryRe
 			leader, _ := s.leaderAddr(ctx)
 			return model.QueryResult{}, &LeaderRedirectError{Leader: leader}
 		}
-		return s.raftNode.Apply(input, 10*time.Second)
+		return s.raftNode.Apply(statement.Raw, 10*time.Second)
 	}
 
 	if statement.Type == model.StatementSelect || statement.Type == model.StatementShowTables {

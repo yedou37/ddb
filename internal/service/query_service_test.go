@@ -40,6 +40,37 @@ func TestQueryServiceStandaloneFlow(t *testing.T) {
 	}
 }
 
+func TestQueryServiceStandaloneInsertWithRand(t *testing.T) {
+	store := openTestStore(t)
+	defer func() {
+		_ = store.Close()
+	}()
+
+	service := NewQueryService("node1", "127.0.0.1:8080", "127.0.0.1:7000", store, nil, nil)
+
+	if _, err := service.Execute(context.Background(), "CREATE TABLE metrics (id INT PRIMARY KEY, sample FLOAT)"); err != nil {
+		t.Fatalf("Execute(create) error = %v", err)
+	}
+	if _, err := service.Execute(context.Background(), "INSERT INTO metrics VALUES (1, RAND())"); err != nil {
+		t.Fatalf("Execute(insert rand) error = %v", err)
+	}
+
+	result, err := service.Execute(context.Background(), "SELECT * FROM metrics WHERE id = 1")
+	if err != nil {
+		t.Fatalf("Execute(select) error = %v", err)
+	}
+	if got, want := len(result.Rows), 1; got != want {
+		t.Fatalf("len(result.Rows) = %d, want %d", got, want)
+	}
+	value, ok := result.Rows[0][1].(float64)
+	if !ok {
+		t.Fatalf("result.Rows[0][1] = %#v, want float64", result.Rows[0][1])
+	}
+	if value < 0 || value >= 1 {
+		t.Fatalf("RAND() value = %v, want 0 <= value < 1", value)
+	}
+}
+
 func TestQueryServiceStatusAndMembersStandalone(t *testing.T) {
 	store := openTestStore(t)
 	defer func() {
@@ -217,6 +248,38 @@ func TestQueryServiceRaftLeaderFlow(t *testing.T) {
 	}
 	if err := service.Rejoin(context.Background(), model.JoinRequest{NodeID: "node2"}); err == nil {
 		t.Fatalf("Rejoin(missing raft addr) error = nil, want error")
+	}
+}
+
+func TestQueryServiceRaftLeaderInsertWithRand(t *testing.T) {
+	store, node := newTestRaftNode(t)
+	defer func() {
+		_ = node.Close()
+		_ = store.Close()
+	}()
+
+	service := NewQueryService("node1", "127.0.0.1:8080", node.LeaderRaftAddr(), store, node, nil)
+
+	if _, err := service.Execute(context.Background(), "CREATE TABLE metrics (id INT PRIMARY KEY, sample FLOAT)"); err != nil {
+		t.Fatalf("Execute(create via raft) error = %v", err)
+	}
+	if _, err := service.Execute(context.Background(), "INSERT INTO metrics VALUES (1, RAND())"); err != nil {
+		t.Fatalf("Execute(insert rand via raft) error = %v", err)
+	}
+
+	result, err := service.Execute(context.Background(), "SELECT * FROM metrics WHERE id = 1")
+	if err != nil {
+		t.Fatalf("Execute(select) error = %v", err)
+	}
+	if got, want := len(result.Rows), 1; got != want {
+		t.Fatalf("len(result.Rows) = %d, want %d", got, want)
+	}
+	value, ok := result.Rows[0][1].(float64)
+	if !ok {
+		t.Fatalf("result.Rows[0][1] = %#v, want float64", result.Rows[0][1])
+	}
+	if value < 0 || value >= 1 {
+		t.Fatalf("RAND() value = %v, want 0 <= value < 1", value)
 	}
 }
 

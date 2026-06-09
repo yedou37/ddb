@@ -1,0 +1,25 @@
+{
+  "machine_name": "cloud-control",
+  "install_root": "/opt/ddb",
+  "local_ip": "192.168.0.131",
+  "data_root": "/opt/ddb/data",
+  "log_dir": "/opt/ddb/logs/control-plane",
+  "state_dir": "/opt/ddb/state",
+  "server_binary": "/opt/ddb/bin/ddb-server",
+  "build_server_binary": false,
+  "etcd": {
+    "runner": "native",
+    "port": 2379,
+    "data_dir": "/opt/ddb/data/etcd",
+    "binary_path": "/opt/ddb/bin/etcd"
+  },
+  "apiserver": {
+    "node_id": "api-1",
+    "group_id": "control",
+    "http_port": 18100,
+    "raft_port": 30100,
+    "bootstrap": false,
+    "raft_dir": "/opt/ddb/data/api-1/raft",
+    "db_path": "/opt/ddb/data/api-1/apiserver.db"
+  }
+}

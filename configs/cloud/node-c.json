@@ -1,0 +1,59 @@
+{
+  "machine_name": "cloud-node-c",
+  "install_root": "/opt/ddb",
+  "local_ip": "<node-c-private-ip>",
+  "etcd_host": "<control-private-ip>",
+  "etcd_port": 2379,
+  "data_root": "/opt/ddb/data",
+  "log_dir": "/opt/ddb/logs/node-c",
+  "state_dir": "/opt/ddb/state",
+  "server_binary": "/opt/ddb/bin/ddb-server",
+  "build_server_binary": false,
+  "targets": [
+    {
+      "name": "g1-n3",
+      "runner": "ddb-process",
+      "role": "shard",
+      "group_id": "g1",
+      "http_port": 21280,
+      "raft_port": 22280,
+      "bootstrap": false
+    },
+    {
+      "name": "g2-n3",
+      "runner": "ddb-process",
+      "role": "shard",
+      "group_id": "g2",
+      "http_port": 21281,
+      "raft_port": 22281,
+      "bootstrap": false
+    },
+    {
+      "name": "g3-n3",
+      "runner": "ddb-process",
+      "role": "shard",
+      "group_id": "g3",
+      "http_port": 21282,
+      "raft_port": 22282,
+      "bootstrap": false
+    },
+    {
+      "name": "g2-n5",
+      "runner": "ddb-process",
+      "role": "shard",
+      "group_id": "g2",
+      "http_port": 21481,
+      "raft_port": 22481,
+      "bootstrap": false
+    },
+    {
+      "name": "g3-n5",
+      "runner": "ddb-process",
+      "role": "shard",
+      "group_id": "g3",
+      "http_port": 21482,
+      "raft_port": 22482,
+      "bootstrap": false
+    }
+  ]
+}

@@ -10,7 +10,7 @@ NAME=""
 usage() {
   cat <<'USAGE'
 usage:
-  ./scripts/ddb-cloud-node.sh [-Config path] [-Action validate|list|status|start|stop|restart|join|remove|start-all|stop-all|restart-all|join-all] [-Name node]
+  ./scripts/ddb-cloud-node.sh [-Config path] [-Action validate|list|status|start|stop|restart|join|rejoin|remove|remove-local|start-all|stop-all|restart-all|join-all] [-Name node]
 USAGE
 }
 
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$ACTION" in
-  validate|list|status|start|stop|restart|join|remove|start-all|stop-all|restart-all|join-all) ;;
+  validate|list|status|start|stop|restart|join|rejoin|remove|remove-local|start-all|stop-all|restart-all|join-all) ;;
   *)
     echo "unsupported action: $ACTION" >&2
     exit 1
@@ -274,13 +274,13 @@ run_target() {
     --db-path="$TARGET_DB_PATH"
     --bootstrap="$TARGET_BOOTSTRAP"
   )
-  if [[ "$mode" == "join" && -n "$TARGET_JOIN_ADDR" ]]; then
+  if [[ "$mode" == "join" || "$mode" == "rejoin" ]] && [[ -n "$TARGET_JOIN_ADDR" ]]; then
     cmd+=(--join="$TARGET_JOIN_ADDR")
   fi
   if [[ -n "$TARGET_ETCD" ]]; then
     cmd+=(--etcd="$TARGET_ETCD")
   fi
-  if [[ "$mode" == "join" && "$TARGET_REJOIN" == "true" ]]; then
+  if [[ "$mode" == "rejoin" || ( "$mode" == "join" && "$TARGET_REJOIN" == "true" ) ]]; then
     cmd+=(--rejoin=true)
   fi
   log "starting $TARGET_NAME at $TARGET_HTTP_ADDR (mode=$mode)"
@@ -301,6 +301,16 @@ stop_target() {
     fi
     rm -f "$TARGET_PID_FILE"
   fi
+}
+
+remove_local_target() {
+  parse_target_line "$1"
+  stop_target "$1"
+  log "removing local state for $TARGET_NAME"
+  rm -rf "$TARGET_RAFT_DIR"
+  rm -rf "$TARGET_DB_PATH"
+  rm -f "$TARGET_LOG_PATH"
+  rm -f "$TARGET_PID_FILE"
 }
 
 status_target() {
@@ -395,9 +405,18 @@ case "$ACTION" in
     build_server_if_needed
     run_target "$(target_line_by_name "$NAME")" join
     ;;
+  rejoin)
+    [[ -n "$NAME" ]] || fail "-Name is required for rejoin"
+    build_server_if_needed
+    run_target "$(target_line_by_name "$NAME")" rejoin
+    ;;
   remove)
     [[ -n "$NAME" ]] || fail "-Name is required for remove"
     remove_target "$(target_line_by_name "$NAME")"
+    ;;
+  remove-local)
+    [[ -n "$NAME" ]] || fail "-Name is required for remove-local"
+    remove_local_target "$(target_line_by_name "$NAME")"
     ;;
   start-all)
     build_server_if_needed

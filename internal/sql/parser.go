@@ -96,7 +96,7 @@ func parseInsert(sql string) (model.Statement, error) {
 	rawValues := splitCommaAware(valuesBlock[1 : len(valuesBlock)-1])
 	values := make([]any, 0, len(rawValues))
 	for _, raw := range rawValues {
-		value, err := parseLiteral(raw)
+		value, err := parseInsertValue(raw)
 		if err != nil {
 			return model.Statement{}, err
 		}
@@ -109,6 +109,14 @@ func parseInsert(sql string) (model.Statement, error) {
 		Values: values,
 		Raw:    sql,
 	}, nil
+}
+
+func parseInsertValue(input string) (any, error) {
+	value := strings.TrimSpace(input)
+	if strings.EqualFold(value, "RAND()") {
+		return model.FunctionCall{Name: "RAND"}, nil
+	}
+	return parseLiteral(value)
 }
 
 func parseSelect(sql string) (model.Statement, error) {

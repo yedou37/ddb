@@ -161,6 +161,9 @@ func (s *Store) Insert(table string, values []any) error {
 
 	row := make(map[string]any, len(schema.Columns))
 	for index, column := range schema.Columns {
+		if functionCall, ok := values[index].(model.FunctionCall); ok {
+			return fmt.Errorf("unresolved function %s() in INSERT values", functionCall.Name)
+		}
 		row[column.Name] = values[index]
 	}
 

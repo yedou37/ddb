@@ -305,7 +305,9 @@ cp /opt/ddb/configs/node-c.sample.json /opt/ddb/configs/node-c.json
 - `stop`
 - `restart`
 - `join`
+- `rejoin`
 - `remove`
+- `remove-local`
 - `start-all`
 - `stop-all`
 - `restart-all`
@@ -320,10 +322,17 @@ cp /opt/ddb/configs/node-c.sample.json /opt/ddb/configs/node-c.json
   - 用于让一个新节点加入副本组
   - 默认依赖 `etcd` 自动发现当前 leader，不再写死 bootstrap 地址
   - 适合第一次拉起 follower，或新增 `n4/n5`
+- `rejoin`
+  - 用于一个已经 `remove` 过、但仍保留本地 `raft/db` 状态的旧节点重新回到副本组
+  - 不需要先清理本地目录
 - `remove`
   - 用于把节点从副本组成员关系中移除
   - 脚本内部会调用 `ddb-cli cluster remove`
   - 成功后会顺手停掉对应进程
+- `remove-local`
+  - 只清理本地 `raft_dir/db_path/log/pid`
+  - 不修改副本组成员关系
+  - 不清除 etcd 中的 removed 标记
 
 如果只想单独操作某一个 shard，可以这样：
 
@@ -342,6 +351,20 @@ cp /opt/ddb/configs/node-c.sample.json /opt/ddb/configs/node-c.json
 ```bash
 /opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-b.json -Action remove -Name g1-n5
 ```
+
+如果要让一个被 `remove` 的旧节点保留本地状态回来：
+
+```bash
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-b.json -Action rejoin -Name g1-n5
+```
+
+如果要清理本地状态：
+
+```bash
+/opt/ddb/scripts/ddb-cloud-node.sh -Config /opt/ddb/configs/node-b.json -Action remove-local -Name g1-n5
+```
+
+如果这个 `node_id` 已经执行过 `remove`，即使再执行 `remove-local`，后续也仍然应该使用 `rejoin`，而不是普通 `join`。
 
 ### 登录方式
 
@@ -379,6 +402,11 @@ nohup <command> >/opt/ddb/logs/<name>.log 2>&1 &
 3. `node-b.json` 和 `node-c.json` 首次部署时用 `join-all`
 
 后续如果只是模拟节点宕机恢复，就不要再用 `join`，而是直接 `start` 或 `restart`。
+
+如果节点已经执行过 `remove`，则不要直接 `start`：
+
+- 保留旧本地状态回来：用 `rejoin`
+- 移出后即使清空本地状态，原 `node_id` 回来仍然用 `rejoin`
 
 ### 为什么 follower 放后面
 

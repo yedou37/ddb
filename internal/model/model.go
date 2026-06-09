@@ -53,6 +53,10 @@ const (
 	StatementShowTables  StatementType = "show_tables"
 )
 
+type FunctionCall struct {
+	Name string `json:"name"`
+}
+
 type Statement struct {
 	Type        StatementType
 	Table       string

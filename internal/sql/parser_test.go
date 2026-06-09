@@ -43,6 +43,24 @@ func TestParseInsertWithQuotedComma(t *testing.T) {
 	}
 }
 
+func TestParseInsertWithRandFunction(t *testing.T) {
+	statement, err := Parse("INSERT INTO users VALUES (1, RAND())")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if statement.Type != model.StatementInsert {
+		t.Fatalf("statement.Type = %q, want %q", statement.Type, model.StatementInsert)
+	}
+	functionCall, ok := statement.Values[1].(model.FunctionCall)
+	if !ok {
+		t.Fatalf("statement.Values[1] = %#v, want model.FunctionCall", statement.Values[1])
+	}
+	if got, want := functionCall.Name, "RAND"; got != want {
+		t.Fatalf("functionCall.Name = %q, want %q", got, want)
+	}
+}
+
 func TestParseDropTable(t *testing.T) {
 	statement, err := Parse("DROP TABLE users")
 	if err != nil {
